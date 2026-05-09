@@ -315,7 +315,28 @@ class InputManager {
 
     this._bindSteppers();
     this._renderForm();
+    this._injectModeToggle();
     this._bindFormButtons();
+  }
+
+  _injectModeToggle() {
+    if (document.getElementById('modeToggle')) return;
+    const actionBar = document.querySelector('.action-bar');
+    const wrap = document.createElement('div');
+    wrap.id = 'modeToggle';
+    wrap.className = 'mode-toggle';
+    wrap.innerHTML =
+      '<span class="mode-label">Режим роботи:</span>' +
+      '<label class="mode-option"><input type="radio" name="appMode" value="student" checked>' +
+      '<span class="mode-pill">Тренажер</span></label>' +
+      '<label class="mode-option"><input type="radio" name="appMode" value="guide">' +
+      '<span class="mode-pill">Пояснення</span></label>';
+    actionBar.parentNode.insertBefore(wrap, actionBar);
+  }
+
+  _getMode() {
+    const el = document.querySelector('input[name="appMode"]:checked');
+    return el ? el.value : 'student';
   }
 
   _bindSteppers() {
@@ -543,7 +564,7 @@ class InputManager {
     }
 
     const result = solver.solve();
-    const ui = new UIManager(solver, result);
+    const ui = new UIManager(solver, result, this._getMode());
     ui.start();
   }
 
@@ -563,10 +584,11 @@ class InputManager {
    UIManager — step-by-step interactive flow
 ═══════════════════════════════════════════════ */
 class UIManager {
-  constructor(solver, result) {
+  constructor(solver, result, mode = 'student') {
     this.solver  = solver;
     this.result  = result;
-    this.stepIdx = 0; // current iteration index (into result.steps)
+    this.mode    = mode;
+    this.stepIdx = 0;
 
     this.output  = document.getElementById('solutionOutput');
     this.wrapper = document.getElementById('solutionWrapper');
@@ -579,7 +601,134 @@ class UIManager {
     this.banner.classList.add('hidden');
     this.banner.className = 'result-banner hidden';
     window.scrollTo({ top: this.wrapper.offsetTop - 80, behavior: 'smooth' });
-    this._renderStep(0);
+    if (this.mode === 'guide') {
+      this._startGuide();
+    } else {
+      this._renderStep(0);
+    }
+  }
+
+  /* ══════════════════════════════════════════
+     GUIDE MODE — renders all steps at once
+  ══════════════════════════════════════════ */
+  _startGuide() {
+    const steps = this.result.steps;
+    for (let i = 0; i <= steps.length; i++) {
+      this._renderGuideStep(i);
+    }
+    this._showFinalResult();
+  }
+
+  _renderGuideStep(stepIdx) {
+    const solver  = this.solver;
+    const steps   = this.result.steps;
+    const isLast  = stepIdx >= steps.length;
+    const snapIdx = isLast ? solver.history.length - 1 : steps[stepIdx].snapIdx;
+    const cardNum = stepIdx + 1;
+
+    const pivotRow = isLast ? -1 : steps[stepIdx].pivotRow;
+    const pivotCol = isLast ? -1 : steps[stepIdx].pivotCol;
+
+    const title = isLast ? 'Оптимальний план досягнуто' : `Ітерація ${cardNum}`;
+    const { card, body } = this._makeCard(cardNum, title);
+    this.output.appendChild(card);
+
+    const tab   = solver.getTableau(snapIdx);
+    const basis = solver.getBasis(snapIdx);
+
+    // ── Current table (with pivot highlighted if not last) ──
+    const tablePhase = document.createElement('div');
+    tablePhase.className = 'phase';
+    const tLabel = document.createElement('p');
+    tLabel.className = 'phase-question';
+    tLabel.textContent = isLast ? 'Фінальна симплекс-таблиця:' : 'Поточна симплекс-таблиця:';
+    tablePhase.appendChild(tLabel);
+    tablePhase.appendChild(this._buildTable(snapIdx, pivotRow, pivotCol).wrap);
+    body.appendChild(tablePhase);
+
+    if (isLast) {
+      const note = document.createElement('div');
+      note.className = 'step-note';
+      note.innerHTML = '<strong>Перевірка:</strong> всі bᵢ ≥ 0 — план прімально допустимий і оптимальний.';
+      const notePhase = document.createElement('div');
+      notePhase.className = 'phase';
+      notePhase.appendChild(note);
+      body.appendChild(notePhase);
+      return;
+    }
+
+    // ── Explanation notes ──
+    const explPhase = document.createElement('div');
+    explPhase.className = 'phase';
+
+    // Optimality check
+    const negB = [];
+    for (let i = 0; i < solver.m; i++) {
+      const bi = tab[i][solver.bCol];
+      if (bi < -DualSimplexSolver.EPSILON) negB.push({ i, bi });
+    }
+    const note1 = document.createElement('div');
+    note1.className = 'step-note';
+    note1.innerHTML =
+      `<strong>Перевірка оптимальності:</strong> є від'ємні bᵢ: ` +
+      negB.map(({ i, bi }) => `b<sub>${i+1}</sub> = ${DualSimplexSolver.fmt(bi)}`).join(', ') +
+      '. Виконуємо ітерацію двоїстого симплекс-методу.';
+    explPhase.appendChild(note1);
+
+    // Pivot row
+    const note2 = document.createElement('div');
+    note2.className = 'step-note';
+    note2.innerHTML =
+      `<strong>Ведучий рядок:</strong> рядок ${pivotRow + 1} ` +
+      `(базисна змінна ${solver.varName(basis[pivotRow])}) — ` +
+      `найбільш від'ємне b<sub>${pivotRow+1}</sub> = ${DualSimplexSolver.fmt(tab[pivotRow][solver.bCol])}.`;
+    explPhase.appendChild(note2);
+
+    // Pivot column: show all ratios
+    const ratios = [];
+    for (let j = 0; j < solver.bCol; j++) {
+      const arj = tab[pivotRow][j];
+      const dj  = tab[solver.m][j];
+      if (arj < -DualSimplexSolver.EPSILON) {
+        ratios.push({
+          j, arj, dj,
+          ratio: Math.abs(dj / arj),
+        });
+      }
+    }
+    const ratioStr = ratios.map(({ j, arj, dj, ratio }) =>
+      `|Δ<sub>${j+1}</sub>/a<sub>${pivotRow+1},${j+1}</sub>| = ` +
+      `|${DualSimplexSolver.fmt(dj)}/${DualSimplexSolver.fmt(arj)}| = ${DualSimplexSolver.fmt(ratio)}`
+    ).join('&nbsp;&nbsp;|&nbsp;&nbsp;');
+    const note3 = document.createElement('div');
+    note3.className = 'step-note';
+    note3.innerHTML =
+      `<strong>Ведучий стовпець:</strong> відношення для a<sub>rj</sub> &lt; 0: ${ratioStr}. ` +
+      `Мінімум → стовпець <em>${solver.varName(pivotCol)}</em> (j = ${pivotCol + 1}).`;
+    explPhase.appendChild(note3);
+
+    // Gauss-Jordan formula reminder
+    const note4 = document.createElement('div');
+    note4.className = 'step-note';
+    note4.innerHTML =
+      `<strong>Крок Гаусса-Жордана:</strong> ` +
+      `ведучий рядок ділимо на елемент a<sub>${pivotRow+1},${pivotCol+1}</sub> = ` +
+      `${DualSimplexSolver.fmt(tab[pivotRow][pivotCol])}. ` +
+      `Для решти рядків i: нов. рядок<sub>i</sub> = стар. рядок<sub>i</sub> − ` +
+      `a<sub>i,${pivotCol+1}</sub> × (новий ведучий рядок).`;
+    explPhase.appendChild(note4);
+
+    body.appendChild(explPhase);
+
+    // ── Result table after pivot ──
+    const nextPhase = document.createElement('div');
+    nextPhase.className = 'phase';
+    const nLabel = document.createElement('p');
+    nLabel.className = 'phase-question';
+    nLabel.textContent = 'Таблиця після виконання кроку Гаусса-Жордана:';
+    nextPhase.appendChild(nLabel);
+    nextPhase.appendChild(this._buildTable(snapIdx + 1).wrap);
+    body.appendChild(nextPhase);
   }
 
   /* ── Column header labels ─── */
@@ -825,7 +974,7 @@ class UIManager {
     body.appendChild(phase);
     card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
-    // Attach click handlers to data rows (not delta row)
+    let rowMisses = 0;
     tbody.querySelectorAll('tr.row-selectable').forEach(tr => {
       tr.addEventListener('click', () => {
         const userRow = parseInt(tr.dataset.row, 10);
@@ -836,8 +985,21 @@ class UIManager {
           tr.classList.add('pivot-row');
           setTimeout(() => this._renderPivotColPhase(body, stepIdx, snapIdx, pivotRow, card), 600);
         } else {
+          rowMisses++;
+          const tab  = solver.getTableau(snapIdx);
+          const userB = DualSimplexSolver.fmt(tab[userRow][solver.bCol]);
+          let hint = `Невірно. b${userRow + 1} = ${userB}.`;
+          if (rowMisses === 1) {
+            hint += ' Підказка: перегляньте стовпець b і знайдіть найменше (найбільш від\'ємне) значення.';
+          } else {
+            const negRows = [];
+            for (let i = 0; i < solver.m; i++) {
+              if (tab[i][solver.bCol] < -DualSimplexSolver.EPSILON) negRows.push(i + 1);
+            }
+            hint += ` Від'ємні bᵢ є у рядку(ах): ${negRows.join(', ')}. Оберіть рядок з найменшим значенням.`;
+          }
           fb.className = 'phase-feedback error';
-          fb.textContent = `Невірно. Рядок ${userRow + 1} не має найбільш від'ємного bᵢ. Спробуйте ще.`;
+          fb.textContent = hint;
         }
       });
     });
@@ -866,6 +1028,7 @@ class UIManager {
     body.appendChild(phase);
     card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
+    let colMisses = 0;
     thead.querySelectorAll('th.col-selectable').forEach(th => {
       th.addEventListener('click', () => {
         const userCol = parseInt(th.dataset.col, 10);
@@ -873,12 +1036,25 @@ class UIManager {
           fb.className = 'phase-feedback success';
           fb.textContent = `Правильно! Ведучий стовпець — ${solver.varName(pivotCol)}.`;
           thead.querySelectorAll('th.col-selectable').forEach(h => h.classList.remove('col-selectable'));
-          // Re-render table with full pivot highlight
           wrap.replaceWith(this._buildTable(snapIdx, pivotRow, pivotCol).wrap);
           setTimeout(() => this._renderRecalcPhase(body, stepIdx, snapIdx, pivotRow, pivotCol, card), 600);
         } else {
+          colMisses++;
+          const tab = solver.getTableau(snapIdx);
+          const arj = tab[pivotRow][userCol];
+          let hint;
+          if (arj >= -DualSimplexSolver.EPSILON) {
+            hint = `Невірно. a${pivotRow+1},${userCol+1} = ${DualSimplexSolver.fmt(arj)} ≥ 0 — цей стовпець не можна обрати (потрібен від'ємний елемент у ведучому рядку).`;
+          } else {
+            const dj    = tab[solver.m][userCol];
+            const ratio = Math.abs(dj / arj);
+            hint = `Невірно. Відношення |Δ/a| для ${solver.varName(userCol)} = |${DualSimplexSolver.fmt(dj)}/${DualSimplexSolver.fmt(arj)}| = ${DualSimplexSolver.fmt(ratio)}.`;
+            if (colMisses >= 2) {
+              hint += ' Підказка: обчисліть таке відношення для кожного від\'ємного aᵣⱼ і оберіть стовпець з найменшим результатом.';
+            }
+          }
           fb.className = 'phase-feedback error';
-          fb.textContent = `Невірно. Стовпець ${solver.varName(userCol)} не є ведучим. Спробуйте ще.`;
+          fb.textContent = hint;
         }
       });
     });
@@ -984,7 +1160,7 @@ class UIManager {
 
     const btnHint = document.createElement('button');
     btnHint.className = 'btn btn-hint';
-    btnHint.textContent = 'Підказка / Показати відповідь';
+    btnHint.textContent = 'Підказка';
 
     controls.appendChild(btnCheck);
     controls.appendChild(btnHint);
@@ -997,21 +1173,26 @@ class UIManager {
     body.appendChild(phase);
     card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
+    let checkMisses = 0;
+    let hintStage   = 0; // 0 = not used, 1 = formula shown, 2 = answers revealed
+
     // ── Check button ──
     btnCheck.addEventListener('click', () => {
       const userGrid = inputs.map(rowArr => rowArr.map(inp => inp.value));
       const grid     = solver.validateTableau(nextSnap, userGrid);
       let allCorrect = true;
+      let wrongCount = 0;
 
       inputs.forEach((rowArr, i) => {
         rowArr.forEach((inp, j) => {
           if (inp.readOnly) return;
-          inp.classList.remove('correct', 'wrong');
+          if (hintStage < 2) inp.classList.remove('correct', 'wrong');
           if (grid[i][j]) {
-            inp.classList.add('correct');
+            if (hintStage < 2) inp.classList.add('correct');
           } else {
-            inp.classList.add('wrong');
+            if (hintStage < 2) inp.classList.add('wrong');
             allCorrect = false;
+            wrongCount++;
           }
         });
       });
@@ -1026,24 +1207,48 @@ class UIManager {
           this._renderStep(this.stepIdx);
         }, 700);
       } else {
+        checkMisses++;
+        let msg = `${wrongCount} ${wrongCount === 1 ? 'значення невірне' : 'значень невірних'} (позначені червоним).`;
+        if (checkMisses === 1) {
+          msg += ' Пам\'ятайте: ведучий рядок ділиться на ведучий елемент. Для інших рядків: новий_рядок = старий_рядок − коеф × ведучий_рядок.';
+        } else if (checkMisses === 2) {
+          msg += ' Перевірте знаки. Для рядка i: коефіцієнт = a[i][ведучий_стовп] до перетворення.';
+        } else {
+          msg += ' Скористайтеся підказкою для отримання формул або відповідей.';
+        }
         recalcFb.className = 'phase-feedback error';
-        recalcFb.textContent = 'Деякі значення невірні (позначені червоним). Перевірте обчислення.';
+        recalcFb.textContent = msg;
       }
     });
 
-    // ── Hint button ──
+    // ── Hint button (two-stage) ──
     btnHint.addEventListener('click', () => {
-      inputs.forEach((rowArr, i) => {
-        rowArr.forEach((inp, j) => {
-          if (inp.readOnly) return;
-          inp.classList.remove('correct', 'wrong');
-          inp.classList.add('revealed');
-          inp.value = DualSimplexSolver.fmt(correct[i][j]);
+      if (hintStage === 0) {
+        // Stage 1: show formula only
+        hintStage = 1;
+        btnHint.textContent = 'Показати відповідь';
+        const pivEl = DualSimplexSolver.fmt(solver.getTableau(snapIdx)[pivotRow][pivotCol]);
+        recalcFb.className = 'phase-feedback info';
+        recalcFb.textContent =
+          `Формула: ведучий рядок (рядок ${pivotRow + 1}) ÷ ${pivEl}. ` +
+          `Для кожного іншого рядка i: нове значення = старе − a[i][${pivotCol + 1}] × новий_ведучий_рядок. ` +
+          `Знак визначається знаком a[i][${pivotCol + 1}] у СТАРІЙ таблиці.`;
+      } else {
+        // Stage 2: reveal all answers
+        hintStage = 2;
+        btnHint.disabled = true;
+        inputs.forEach((rowArr, i) => {
+          rowArr.forEach((inp, j) => {
+            if (inp.readOnly) return;
+            inp.classList.remove('correct', 'wrong');
+            inp.classList.add('revealed');
+            inp.value = DualSimplexSolver.fmt(correct[i][j]);
+          });
         });
-      });
-      recalcFb.className = 'phase-feedback info';
-      recalcFb.textContent = 'Правильні значення показано. Можете продовжити далі.';
-      btnCheck.disabled = false;
+        recalcFb.className = 'phase-feedback info';
+        recalcFb.textContent = 'Відповіді показано. Натисніть «Перевірити» для переходу до наступного кроку.';
+        btnCheck.disabled = false;
+      }
     });
   }
 
