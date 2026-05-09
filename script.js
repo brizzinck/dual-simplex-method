@@ -280,6 +280,21 @@ class DualSimplexSolver {
   }
 
 
+  /* ── Parse user input: supports "3", "-1/2", "0" ── */
+  static parseFraction(str) {
+    str = String(str).trim();
+    if (!str) return NaN;
+    const parts = str.split('/');
+    if (parts.length === 1) return parseFloat(str);
+    if (parts.length === 2) {
+      const n = parseFloat(parts[0]);
+      const d = parseFloat(parts[1]);
+      if (isNaN(n) || isNaN(d) || Math.abs(d) < 1e-12) return NaN;
+      return n / d;
+    }
+    return NaN;
+  }
+
   /* ── Utility: pretty-print a number ─────────
      Converts near-integers and common fractions to readable strings.
   ─────────────────────────────────────────── */
@@ -823,6 +838,81 @@ class UIManager {
     return { wrap, table, tbody, thead };
   }
 
+  /* ── Table where b-column and Δ-row are blank inputs ──
+     A-matrix cells are read-only text.
+     Returns { wrap, inputCells } where inputCells = [{inp, correctVal}]
+  ─────────────────────────────────────────────────── */
+  _buildInputTable(snapIdx) {
+    const solver = this.solver;
+    const tab    = solver.getTableau(snapIdx);
+    const basis  = solver.getBasis(snapIdx);
+    const hdrs   = this._colHeaders();
+    const bCol   = solver.bCol;
+
+    const inputCells = [];
+
+    const wrap  = document.createElement('div');
+    wrap.className = 'simplex-table-wrap';
+    const table = document.createElement('table');
+    table.className = 'simplex-table';
+
+    // thead
+    const thead = document.createElement('thead');
+    const hrow  = document.createElement('tr');
+    const thB   = document.createElement('th');
+    thB.className = 'col-basis';
+    thB.textContent = 'Базис';
+    hrow.appendChild(thB);
+    hdrs.forEach((h, j) => {
+      const th = document.createElement('th');
+      th.textContent = h;
+      if (j === bCol) th.className = 'col-b';
+      hrow.appendChild(th);
+    });
+    thead.appendChild(hrow);
+    table.appendChild(thead);
+
+    // tbody
+    const tbody = document.createElement('tbody');
+    tab.forEach((row, i) => {
+      const tr = document.createElement('tr');
+      const tdLabel = document.createElement('td');
+      tdLabel.className = 'col-basis';
+      if (i === solver.m) {
+        tr.classList.add('row-delta');
+        tdLabel.textContent = 'Δ';
+      } else {
+        tdLabel.textContent = solver.varName(basis[i]);
+      }
+      tr.appendChild(tdLabel);
+
+      row.forEach((val, j) => {
+        const td = document.createElement('td');
+        if (j === bCol) td.className = 'col-b';
+
+        const needsInput = (j === bCol) || (i === solver.m);
+        if (needsInput) {
+          const inp = document.createElement('input');
+          inp.type = 'text';
+          inp.className = 'cell-input';
+          inp.placeholder = '?';
+          td.appendChild(inp);
+          inputCells.push({ inp, correctVal: val });
+        } else {
+          td.textContent = DualSimplexSolver.fmt(val);
+        }
+
+        tr.appendChild(td);
+      });
+
+      tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    return { wrap, inputCells };
+  }
+
   /* ── Create a step card shell ────────────── */
   _makeCard(stepNum, title) {
     const card = document.createElement('div');
@@ -871,20 +961,94 @@ class UIManager {
     const { card, body } = this._makeCard(cardNum, `Ітерація ${cardNum} — перевірка оптимальності`);
     this.output.appendChild(card);
 
-    // ── Phase 1: show current table (read-only) ──
+    // ── Phase 1: current table ──
     const tablePhase = document.createElement('div');
     tablePhase.className = 'phase';
-    const tq = document.createElement('p');
-    tq.className = 'phase-question';
-    tq.textContent = 'Поточна симплекс-таблиця:';
-    tablePhase.appendChild(tq);
+
+    if (this.mode === 'student') {
+      // b column and Δ row are blank — student fills them in
+      const tq = document.createElement('p');
+      tq.className = 'phase-question';
+      tq.textContent = 'Поточна симплекс-таблиця: введіть значення стовпця b та рядку Δ:';
+      tablePhase.appendChild(tq);
+
+      const { wrap: inputWrap, inputCells } = this._buildInputTable(snapIdx);
+      tablePhase.appendChild(inputWrap);
+
+      const verifyBar = document.createElement('div');
+      verifyBar.className = 'recalc-controls';
+      const btnVerify = document.createElement('button');
+      btnVerify.className = 'btn btn-primary';
+      btnVerify.textContent = 'Перевірити';
+      verifyBar.appendChild(btnVerify);
+      tablePhase.appendChild(verifyBar);
+
+      const verifyFb = document.createElement('div');
+      verifyFb.className = 'phase-feedback hidden';
+      tablePhase.appendChild(verifyFb);
+      body.appendChild(tablePhase);
+
+      // ── Phase 2 is hidden until table verified ──
+      const optPhase = document.createElement('div');
+      optPhase.className = 'phase hidden';
+      this._buildOptPhase(optPhase, snapIdx, stepIdx, body, card);
+      body.appendChild(optPhase);
+
+      let verifyMisses = 0;
+      btnVerify.addEventListener('click', () => {
+        let allOk = true;
+        inputCells.forEach(({ inp, correctVal }) => {
+          inp.classList.remove('correct', 'wrong');
+          const uv = DualSimplexSolver.parseFraction(inp.value);
+          const ok = !isNaN(uv) && Math.abs(uv - correctVal) <= 1e-6;
+          inp.classList.add(ok ? 'correct' : 'wrong');
+          if (!ok) allOk = false;
+        });
+
+        if (allOk) {
+          verifyFb.className = 'phase-feedback success';
+          verifyFb.textContent = 'Правильно! Тепер перевірте оптимальність плану.';
+          btnVerify.disabled = true;
+          optPhase.classList.remove('hidden');
+          optPhase.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } else {
+          verifyMisses++;
+          let msg = 'Деякі значення невірні (червоний колір).';
+          if (verifyMisses === 1) {
+            msg += ' Стовпець b: перенесіть праві частини обмежень (з урахуванням знаку нерівності). Рядок Δ: коефіцієнти цільової функції.';
+          } else {
+            msg += ' Підказка: для обмежень типу ≥ рядок множиться на −1, тому b і коефіцієнти змінюють знак.';
+          }
+          verifyFb.className = 'phase-feedback error';
+          verifyFb.textContent = msg;
+        }
+      });
+
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return; // optPhase is already appended above; skip the code below
+    }
+
+    // Guide mode: show full read-only table immediately
+    const tq2 = document.createElement('p');
+    tq2.className = 'phase-question';
+    tq2.textContent = 'Поточна симплекс-таблиця:';
+    tablePhase.appendChild(tq2);
     const { wrap: tableWrap } = this._buildTable(snapIdx);
     tablePhase.appendChild(tableWrap);
     body.appendChild(tablePhase);
 
-    // ── Phase 2: optimality question ──
+    // ── Phase 2: optimality question (visible immediately in guide/non-student path) ──
     const optPhase = document.createElement('div');
     optPhase.className = 'phase';
+    this._buildOptPhase(optPhase, snapIdx, stepIdx, body, card);
+    body.appendChild(optPhase);
+
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  /* ── Shared: populate an opt-check phase element ── */
+  _buildOptPhase(optPhase, snapIdx, stepIdx, body, card) {
+    const solver = this.solver;
 
     const optQ = document.createElement('p');
     optQ.className = 'phase-question';
@@ -910,8 +1074,6 @@ class UIManager {
     optFeedback.className = 'phase-feedback hidden';
     optPhase.appendChild(optFeedback);
 
-    body.appendChild(optPhase);
-
     const onOptChoice = (userSaysOptimal) => {
       const correct = solver.validateOptimalityAnswer(snapIdx, userSaysOptimal);
       [btnYes, btnNo].forEach(b => b.disabled = true);
@@ -923,7 +1085,6 @@ class UIManager {
         optFeedback.textContent = userSaysOptimal
           ? 'Невірно. Є від\'ємні bᵢ — план ще не оптимальний.'
           : 'Невірно. Всі bᵢ ≥ 0 — план вже оптимальний.';
-        // Re-enable after short delay
         setTimeout(() => {
           [btnYes, btnNo].forEach(b => { b.disabled = false; b.classList.remove('selected-wrong'); });
           optFeedback.className = 'phase-feedback hidden';
@@ -947,8 +1108,6 @@ class UIManager {
 
     btnYes.addEventListener('click', () => onOptChoice(true));
     btnNo .addEventListener('click', () => onOptChoice(false));
-
-    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   /* ── Phase 3: pivot row selection ────────── */
@@ -1119,25 +1278,14 @@ class UIManager {
         const td = document.createElement('td');
         if (j === bCol) td.className = 'col-b';
 
-        // Pivot row is given (read-only) to match textbook convention
-        if (i === pivotRow) {
-          const inp = document.createElement('input');
-          inp.type = 'text';
-          inp.className = 'cell-input';
-          inp.value = DualSimplexSolver.fmt(val);
-          inp.readOnly = true;
-          td.appendChild(inp);
-          rowInputs.push(inp);
-        } else {
-          const inp = document.createElement('input');
-          inp.type = 'text';
-          inp.className = 'cell-input';
-          inp.placeholder = '?';
-          inp.dataset.row = i;
-          inp.dataset.col = j;
-          td.appendChild(inp);
-          rowInputs.push(inp);
-        }
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.className = 'cell-input';
+        inp.placeholder = '?';
+        inp.dataset.row = i;
+        inp.dataset.col = j;
+        td.appendChild(inp);
+        rowInputs.push(inp);
 
         tr.appendChild(td);
       });
@@ -1185,7 +1333,6 @@ class UIManager {
 
       inputs.forEach((rowArr, i) => {
         rowArr.forEach((inp, j) => {
-          if (inp.readOnly) return;
           if (hintStage < 2) inp.classList.remove('correct', 'wrong');
           if (grid[i][j]) {
             if (hintStage < 2) inp.classList.add('correct');
@@ -1239,7 +1386,6 @@ class UIManager {
         btnHint.disabled = true;
         inputs.forEach((rowArr, i) => {
           rowArr.forEach((inp, j) => {
-            if (inp.readOnly) return;
             inp.classList.remove('correct', 'wrong');
             inp.classList.add('revealed');
             inp.value = DualSimplexSolver.fmt(correct[i][j]);
