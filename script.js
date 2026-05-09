@@ -18,20 +18,20 @@ class DualSimplexSolver {
      c      : Float64Array(n)   objective coefficients
      A      : Float64Array(m*n) constraint matrix, row-major
      b      : Float64Array(m)   RHS
-     signs  : string[]          '<=' or '>=' per row  ('=' is not supported)
+     signs  : string[]          '<=' | '>=' | '=' per row
      dir    : 'min' | 'max'
+
+     Equality constraints ('=') are handled by identifying a decision variable
+     whose column is a unit vector restricted to that row (coefficient ≠ 0 in
+     the '=' row, zero in every other row).  That variable becomes the initial
+     basic variable for the row, the row is normalised, and the objective row is
+     updated via Gauss-Jordan so the reduced cost of the basic variable is zero.
+     No slack column is added for '=' rows; mSlack ≤ m.
   ─────────────────────────────────────────── */
   constructor(c, A, b, signs, dir) {
-    if (signs.some(s => s === '=')) {
-      throw new Error(
-        'Обмеження типу "=" не підтримуються двоїстим симплекс-методом у цій реалізації. ' +
-        'Використовуйте лише ≤ або ≥.'
-      );
-    }
-
-    this.n    = c.length;
-    this.m    = b.length;
-    this.dir  = dir;
+    this.n   = c.length;
+    this.m   = b.length;
+    this.dir = dir;
 
     // Convert max → min by negating c; display layer re-negates the Δ row for max
     this._cOrig = Float64Array.from(c);
@@ -39,38 +39,121 @@ class DualSimplexSolver {
       ? Float64Array.from(c, v => -v)
       : Float64Array.from(c);
 
-    // Build initial tableau: (m+1) rows × (n+m+1) cols
-    // Rows 0..m-1: constraints; row m: objective row (Δⱼ)
-    // Cols 0..n-1: x vars; cols n..n+m-1: slacks; col n+m: b
-    this.cols = this.n + this.m + 1; // total columns per row
-    this.bCol = this.n + this.m;     // index of RHS column
-    this.rows = this.m + 1;          // constraint rows + obj row
+    // Count slack variables — one per ≤ / ≥ constraint, none for =
+    const mSlack = signs.filter(s => s !== '=').length;
+    this.mSlack = mSlack;
+
+    // Tableau layout:
+    //   Rows  0..m-1  : constraint rows
+    //   Row   m       : objective row (Δⱼ / reduced costs)
+    //   Cols  0..n-1  : decision variables x₁…xₙ
+    //   Cols  n..n+mSlack-1 : slack variables (only for ≤/≥ rows)
+    //   Col   n+mSlack      : RHS (b)
+    this.cols = this.n + mSlack + 1;
+    this.bCol = this.n + mSlack;
+    this.rows = this.m + 1;
 
     this.tableau = new Float64Array(this.rows * this.cols);
+    this.basis   = new Array(this.m);
 
-    // Fill constraint rows
+    // ── Phase 1: fill inequality constraint rows (≤ / ≥) ──────────
+    const eqRows  = [];   // indices of equality constraint rows (filled in phase 2)
+    let   slackIdx = 0;   // running index into the slack columns
+
     for (let i = 0; i < this.m; i++) {
       const sign = signs[i];
-
-      // For >= constraints: multiply row by -1 so b becomes negative,
-      // giving the dual-infeasible (primal-infeasible) start dual simplex needs.
-      // The slack absorbs the sign flip: -Ax + s = -b, s >= 0.
-      const rowMult = sign === '>=' ? -1 : 1;
-
-      for (let j = 0; j < this.n; j++) {
-        this._set(i, j, rowMult * A[i * this.n + j]);
+      if (sign === '=') {
+        // Copy coefficients and RHS as-is; basis variable assigned in phase 2
+        for (let j = 0; j < this.n; j++) {
+          this._set(i, j, A[i * this.n + j]);
+        }
+        this._set(i, this.bCol, b[i]);
+        eqRows.push(i);
+      } else {
+        // ≥  →  multiply by −1 so b becomes negative (primal infeasibility = dual simplex start)
+        const k = sign === '>=' ? -1 : 1;
+        for (let j = 0; j < this.n; j++) {
+          this._set(i, j, k * A[i * this.n + j]);
+        }
+        const slackCol = this.n + slackIdx++;
+        this._set(i, slackCol, 1);            // slack coefficient always +1 after flip
+        this._set(i, this.bCol, k * b[i]);
+        this.basis[i] = slackCol;
       }
-      this._set(i, this.n + i, 1); // slack coefficient is always +1 after row flip
-      this._set(i, this.bCol, rowMult * b[i]);
     }
 
-    // Objective row: reduced costs = cⱼ (slacks have cost 0)
+    // ── Phase 2: assign basic variables for equality rows ──────────
+    // For each '=' row find a decision variable xⱼ whose column is a
+    // unit vector for that row: coeff ≠ 0 in row i, coeff ≈ 0 in all others.
+    // Normalise the row and eliminate xⱼ from every other row (including obj).
+    const EPS         = DualSimplexSolver.EPSILON;
+    const usedAsBasis = new Set();
+
+    for (const i of eqRows) {
+      let basicVar = -1;
+
+      for (let j = 0; j < this.n; j++) {
+        if (usedAsBasis.has(j)) continue;
+        if (Math.abs(this._get(i, j)) < EPS) continue;
+
+        // xⱼ is a candidate only if it has zero coefficient in every other row
+        let clean = true;
+        for (let k = 0; k < this.m; k++) {
+          if (k !== i && Math.abs(this._get(k, j)) > EPS) { clean = false; break; }
+        }
+        if (clean) { basicVar = j; break; }
+      }
+
+      if (basicVar === -1) {
+        throw new Error(
+          `Рядок рівності ${i + 1}: неможливо автоматично знайти базисну змінну. ` +
+          'Переконайтеся, що задача наведена в канонічній формі: ' +
+          'хоча б одна змінна має ненульовий коефіцієнт лише у цьому рядку рівності.'
+        );
+      }
+
+      // Normalise row so the basic variable has coefficient 1
+      const pivot = this._get(i, basicVar);
+      if (Math.abs(pivot - 1) > EPS) {
+        for (let j = 0; j < this.cols; j++) {
+          this._set(i, j, DualSimplexSolver.clean(this._get(i, j) / pivot));
+        }
+        this._set(i, basicVar, 1); // exact 1
+      }
+
+      this.basis[i] = basicVar;
+      usedAsBasis.add(basicVar);
+
+      // Eliminate basicVar from all other constraint rows
+      for (let k = 0; k < this.m; k++) {
+        if (k === i) continue;
+        const factor = this._get(k, basicVar);
+        if (Math.abs(factor) < EPS) continue;
+        for (let j = 0; j < this.cols; j++) {
+          this._set(k, j, DualSimplexSolver.clean(this._get(k, j) - factor * this._get(i, j)));
+        }
+        this._set(k, basicVar, 0); // exact 0
+      }
+    }
+
+    // ── Phase 3: build objective row ───────────────────────────────
+    // Initialise with cWork; then eliminate the reduced cost of each basic
+    // decision variable (those from '=' rows) via Gauss-Jordan so that the
+    // objective row correctly reflects the current basis.
     for (let j = 0; j < this.n; j++) {
       this._set(this.m, j, cWork[j]);
     }
+    // (slack columns already 0; RHS starts at 0)
 
-    // Basis: initially slack variables s₁..sₘ
-    this.basis = Array.from({ length: this.m }, (_, i) => this.n + i);
+    for (const i of eqRows) {
+      const basicVar = this.basis[i];
+      const factor   = this._get(this.m, basicVar);
+      if (Math.abs(factor) < EPS) continue;
+      for (let j = 0; j < this.cols; j++) {
+        this._set(this.m, j, DualSimplexSolver.clean(this._get(this.m, j) - factor * this._get(i, j)));
+      }
+      this._set(this.m, basicVar, 0); // exact 0
+    }
 
     // History of snapshots for the interactive UI
     this.history = [];
@@ -93,20 +176,24 @@ class DualSimplexSolver {
   }
 
   /* Return snapshot k as a plain 2-D array (rows × cols), display-ready.
-     For max problems the Δ row is stored negated internally (max→min conversion);
-     we negate it back here so students see the original objective-row signs,
-     matching the guide's convention (Δⱼ ≤ 0 for max, Z in the RHS column). */
+     For max problems the Δ row coefficients are stored negated internally
+     (max→min conversion).  We negate them back on the way out so students see
+     the original objective signs (Δⱼ ≤ 0 for max) as in the guide.
+     The RHS column of the Δ row already holds the true F_max value and must
+     NOT be negated — it is passed through as-is for both min and max. */
   getTableau(k) {
     const snap = this.history[k];
     if (!snap) return null;
-    const t    = snap.tableau;
-    const sign = this.dir === 'max' ? -1 : 1;
+    const t      = snap.tableau;
+    const isMax  = this.dir === 'max';
     const result = [];
     for (let i = 0; i < this.rows; i++) {
       const row = [];
-      const s   = (i === this.m) ? sign : 1; // negate only the Δ row for max
       for (let j = 0; j < this.cols; j++) {
-        row.push(s * t[i * this.cols + j]);
+        let val = t[i * this.cols + j];
+        // Negate Δ-row coefficient columns (not the RHS) for max display
+        if (i === this.m && isMax && j < this.bCol) val = -val;
+        row.push(val);
       }
       result.push(row);
     }
@@ -429,14 +516,7 @@ class CanonicalConverter {
       if (!Array.isArray(A[i]) || A[i].length !== n) {
         throw new Error(`Row ${i + 1} of A must have exactly ${n} elements.`);
       }
-      if (signs[i] === '=') {
-        throw new Error(
-          `Constraint ${i + 1} uses "=". ` +
-          'Equality constraints are not supported — the Dual Simplex Method ' +
-          'requires a slack-variable basis. Use ≤ or ≥ only.'
-        );
-      }
-      if (signs[i] !== '<=' && signs[i] !== '>=') {
+      if (signs[i] !== '<=' && signs[i] !== '>=' && signs[i] !== '=') {
         throw new Error(
           `Constraint ${i + 1} has unknown sign "${signs[i]}". Use '<=' or '>='.`
         );
@@ -751,11 +831,12 @@ class InputManager {
       return;
     }
 
-    // Check that dual simplex start condition holds (all Δj >= 0)
+    // Check that dual simplex start condition holds
     if (!solver.isDualFeasible(solver.history[0])) {
+      const cond = dir === 'max' ? 'Δⱼ ≤ 0' : 'Δⱼ ≥ 0';
       this._showError(
-        'Початкова таблиця не є подвійно-допустимою (є від\'ємні Δⱼ). ' +
-        'Двоїстий симплекс-метод застосовний лише якщо всі Δⱼ ≥ 0 в початковій таблиці.'
+        `Початкова таблиця не є подвійно-допустимою. ` +
+        `Двоїстий симплекс-метод застосовний лише якщо всі ${cond} в початковій таблиці.`
       );
       return;
     }
@@ -930,10 +1011,10 @@ class UIManager {
 
   /* ── Column header labels ─── */
   _colHeaders() {
-    const { n, m } = this.solver;
+    const { n, mSlack } = this.solver;
     const hdrs = [];
     for (let j = 0; j < n; j++) hdrs.push(`x${j + 1}`);
-    for (let k = 0; k < m; k++) hdrs.push(`s${k + 1}`);
+    for (let k = 0; k < mSlack; k++) hdrs.push(`s${k + 1}`);
     hdrs.push('b');
     return hdrs;
   }
@@ -1197,9 +1278,9 @@ class UIManager {
           verifyMisses++;
           let msg = 'Деякі значення невірні (червоний колір).';
           if (verifyMisses === 1) {
-            msg += ' Стовпець b: перенесіть праві частини обмежень (з урахуванням знаку нерівності). Рядок Δ: коефіцієнти цільової функції.';
+            msg += ' Стовпець b: праві частини обмежень (для ≥ — зі зміною знаку). Рядок Δ: знижені оцінки небазисних змінних (для max — від\'ємні cⱼ); для базисних — 0; стовпець b рядка Δ — поточне значення F.';
           } else {
-            msg += ' Підказка: для обмежень типу ≥ рядок множиться на −1, тому b і коефіцієнти змінюють знак.';
+            msg += ' Підказка: для ≥ рядок множиться на −1 (b і коефіцієнти змінюють знак). Для рівностей (=) базисна змінна вже врахована в рядку Δ — значення Δⱼ для неї дорівнює 0.';
           }
           verifyFb.className = 'phase-feedback error';
           verifyFb.textContent = msg;
