@@ -43,6 +43,16 @@ class DualSimplexSolver {
     const mSlack = signs.filter(s => s !== '=').length;
     this.mSlack = mSlack;
 
+    // Store original problem data for canonical-form display (before any transformations)
+    this._signsOrig = [...signs];
+    this._bOrig     = [...b];
+    this._AOrig     = [];
+    for (let i = 0; i < this.m; i++) {
+      const row = [];
+      for (let j = 0; j < this.n; j++) row.push(A[i * this.n + j]);
+      this._AOrig.push(row);
+    }
+
     // Tableau layout:
     //   Rows  0..m-1  : constraint rows
     //   Row   m       : objective row (Δⱼ / reduced costs)
@@ -176,24 +186,21 @@ class DualSimplexSolver {
   }
 
   /* Return snapshot k as a plain 2-D array (rows × cols), display-ready.
-     For max problems the Δ row coefficients are stored negated internally
-     (max→min conversion).  We negate them back on the way out so students see
-     the original objective signs (Δⱼ ≤ 0 for max) as in the guide.
-     The RHS column of the Δ row already holds the true F_max value and must
-     NOT be negated — it is passed through as-is for both min and max. */
+     The Δ row is stored as Δⱼ = −cⱼ for max (max→min conversion) and
+     Δⱼ = +cⱼ for min.  Both are returned as-is so the display matches the
+     "Z − c·x = 0" canonical form used in Ukrainian textbooks:
+       • max: displayed Δⱼ = −cⱼ  (≥ 0 when cⱼ ≤ 0 → dual-feasible)
+       • min: displayed Δⱼ = +cⱼ  (≥ 0 when cⱼ ≥ 0 → dual-feasible)
+     Dual-feasibility condition for both: all displayed Δⱼ ≥ 0. */
   getTableau(k) {
     const snap = this.history[k];
     if (!snap) return null;
     const t      = snap.tableau;
-    const isMax  = this.dir === 'max';
     const result = [];
     for (let i = 0; i < this.rows; i++) {
       const row = [];
       for (let j = 0; j < this.cols; j++) {
-        let val = t[i * this.cols + j];
-        // Negate Δ-row coefficient columns (not the RHS) for max display
-        if (i === this.m && isMax && j < this.bCol) val = -val;
-        row.push(val);
+        row.push(t[i * this.cols + j]);
       }
       result.push(row);
     }
@@ -745,6 +752,17 @@ class InputManager {
     document.getElementById('btnSolve'  ).addEventListener('click', () => this._onSolve());
     document.getElementById('btnExample').addEventListener('click', () => this._loadExample());
     document.getElementById('btnClear'  ).addEventListener('click', () => this._clearForm());
+
+    // Inject a second example button if not already present
+    if (!document.getElementById('btnExample2')) {
+      const btn2 = document.createElement('button');
+      btn2.id        = 'btnExample2';
+      btn2.className = 'btn btn-secondary';
+      btn2.textContent = 'Приклад 2 (max)';
+      const btnEx = document.getElementById('btnExample');
+      btnEx.parentNode.insertBefore(btn2, btnEx.nextSibling);
+      btn2.addEventListener('click', () => this._loadExample2());
+    }
   }
 
   _clearForm() {
@@ -769,6 +787,32 @@ class InputManager {
     const aCoeffs   = [[1,1,1],[1,2,0],[3,1,1]];
     const bVals     = [6, 8, 9];
     const signs     = ['>=', '>=', '>='];
+
+    document.querySelectorAll('.obj-coeff').forEach((el, j) => { el.value = objCoeffs[j]; });
+    document.querySelectorAll('.con-coeff').forEach(el => {
+      el.value = aCoeffs[el.dataset.i][el.dataset.j];
+    });
+    document.querySelectorAll('.rhs-coeff').forEach(el => { el.value = bVals[el.dataset.i]; });
+    document.querySelectorAll('.sign-select').forEach(el => { el.value = signs[el.dataset.i]; });
+    this._hideError();
+  }
+
+  _loadExample2() {
+    // max Z = 4x₁ + 5x₂
+    // s.t.  2x₁ + x₂ ≤ 16
+    //       x₁ + 2x₂ ≥ 10  ← makes b₂ = −10 (primal infeasible row for dual simplex)
+    //      3x₁ + 4x₂ ≤ 36
+    // NOTE: this problem is NOT dual-feasible (Δ₁=4>0, Δ₂=5>0 for max).
+    // The canonical-form card will explain why dual simplex cannot be applied.
+    document.getElementById('varsCount').textContent = '2'; this.numVars = 2;
+    document.getElementById('consCount').textContent = '3'; this.numCons = 3;
+    document.getElementById('direction').value = 'max';
+    this._renderForm();
+
+    const objCoeffs = [4, 5];
+    const aCoeffs   = [[2,1],[1,2],[3,4]];
+    const bVals     = [16, 10, 36];
+    const signs     = ['<=', '>=', '<='];
 
     document.querySelectorAll('.obj-coeff').forEach((el, j) => { el.value = objCoeffs[j]; });
     document.querySelectorAll('.con-coeff').forEach(el => {
@@ -831,17 +875,12 @@ class InputManager {
       return;
     }
 
-    // Check that dual simplex start condition holds
-    if (!solver.isDualFeasible(solver.history[0])) {
-      const cond = dir === 'max' ? 'Δⱼ ≤ 0' : 'Δⱼ ≥ 0';
-      this._showError(
-        `Початкова таблиця не є подвійно-допустимою. ` +
-        `Двоїстий симплекс-метод застосовний лише якщо всі ${cond} в початковій таблиці.`
-      );
-      return;
-    }
+    // Solve only when dual-feasible; pass null to UIManager when not applicable —
+    // UIManager.start() always shows the canonical-form card first and stops there
+    // with an explanatory message if result is null.
+    const dualOk = solver.isDualFeasible(solver.history[0]);
+    const result = dualOk ? solver.solve() : null;
 
-    const result = solver.solve();
     const ui = new UIManager(solver, result, this._getMode());
     ui.start();
   }
@@ -879,11 +918,174 @@ class UIManager {
     this.banner.classList.add('hidden');
     this.banner.className = 'result-banner hidden';
     window.scrollTo({ top: this.wrapper.offsetTop - 80, behavior: 'smooth' });
+
+    this._renderCanonicalForm();
+
+    if (!this.result) return; // not dual-feasible — canonical card already explains why
+
     if (this.mode === 'guide') {
       this._startGuide();
     } else {
       this._renderStep(0);
     }
+  }
+
+  /* ══════════════════════════════════════════
+     CANONICAL FORM — always rendered first
+  ══════════════════════════════════════════ */
+  _renderCanonicalForm() {
+    const solver  = this.solver;
+    const { n, m, dir, mSlack } = solver;
+    // Dual-feasibility condition is Δⱼ ≥ 0 for both min and max.
+    // For max, stored Δⱼ = −cⱼ, so Δⱼ ≥ 0 means cⱼ ≤ 0 (typical "dual-feasible max").
+    const dualCond = 'Δⱼ ≥ 0';
+
+    const { card, body } = this._makeCard('К', 'Канонічна форма задачі');
+    this.output.appendChild(card);
+
+    // ── Helper: format a linear expression as HTML ──────────────
+    const varNames   = Array.from({ length: n },      (_, j) => `x<sub>${j+1}</sub>`);
+    const slackNames = Array.from({ length: mSlack },  (_, k) => `s<sub>${k+1}</sub>`);
+    const allNames   = [...varNames, ...slackNames];
+
+    const fmtExpr = (coeffs, names) => {
+      let s = ''; let first = true;
+      for (let j = 0; j < coeffs.length; j++) {
+        const c = coeffs[j];
+        if (Math.abs(c) < DualSimplexSolver.EPSILON) continue;
+        const abs = DualSimplexSolver.fmt(Math.abs(c));
+        const coeff = Math.abs(c) === 1 ? '' : abs;
+        if (first) { s += (c < 0 ? '−' : '') + coeff + names[j]; first = false; }
+        else        s += (c < 0 ? ' − ' : ' + ') + coeff + names[j];
+      }
+      return s || '0';
+    };
+
+    // ── Phase 1: original formulation ───────────────────────────
+    const p1 = document.createElement('div'); p1.className = 'phase';
+    const p1q = document.createElement('p'); p1q.className = 'phase-question';
+    p1q.textContent = 'Вихідна задача:';
+    p1.appendChild(p1q);
+
+    const objDiv = document.createElement('div'); objDiv.className = 'step-note';
+    objDiv.innerHTML = `<strong>F = ${fmtExpr([...solver._cOrig], varNames)} → ${dir}</strong>`;
+    p1.appendChild(objDiv);
+
+    const conDiv = document.createElement('div'); conDiv.className = 'step-note';
+    conDiv.innerHTML = solver._AOrig.map((row, i) => {
+      const sc = solver._signsOrig[i] === '>=' ? '≥' : solver._signsOrig[i] === '<=' ? '≤' : '=';
+      return `${fmtExpr(row, varNames)} ${sc} ${DualSimplexSolver.fmt(solver._bOrig[i])}`;
+    }).join('<br>');
+    p1.appendChild(conDiv);
+    body.appendChild(p1);
+
+    // ── Phase 2: transformation table ───────────────────────────
+    const p2 = document.createElement('div'); p2.className = 'phase';
+    const p2q = document.createElement('p'); p2q.className = 'phase-question';
+    p2q.textContent = 'Перетворення до канонічного вигляду:';
+    p2.appendChild(p2q);
+
+    const tbl = document.createElement('table'); tbl.className = 'simplex-table';
+    const thd = document.createElement('thead');
+    const thr = document.createElement('tr');
+    ['#', 'Знак', 'Вихідний рядок', 'Дія', 'Канонічний рядок'].forEach(txt => {
+      const th = document.createElement('th'); th.innerHTML = txt; thr.appendChild(th);
+    });
+    thd.appendChild(thr); tbl.appendChild(thd);
+
+    const tbdy = document.createElement('tbody');
+    let sIdx = 0;
+    const initTab = solver.getTableau(0);
+    const deltaRow = initTab[m];
+
+    for (let i = 0; i < m; i++) {
+      const sign = solver._signsOrig[i];
+      const aRow = solver._AOrig[i];
+      const bi   = solver._bOrig[i];
+      const tr   = document.createElement('tr');
+      const sc   = sign === '>=' ? '≥' : sign === '<=' ? '≤' : '=';
+
+      const tdN = document.createElement('td'); tdN.textContent = i + 1;
+      const tdS = document.createElement('td'); tdS.innerHTML = `<code>${sc}</code>`;
+      const tdO = document.createElement('td');
+      tdO.innerHTML = `${fmtExpr(aRow, varNames)} ${sc} ${DualSimplexSolver.fmt(bi)}`;
+      const tdA = document.createElement('td');
+      const tdC = document.createElement('td');
+
+      if (sign === '<=') {
+        tdA.innerHTML = `+ s<sub>${sIdx+1}</sub> ≥ 0`;
+        const row = [...aRow, ...Array(mSlack).fill(0)];
+        row[n + sIdx] = 1;
+        tdC.innerHTML = `${fmtExpr(row, allNames)} = ${DualSimplexSolver.fmt(bi)}`;
+        sIdx++;
+      } else if (sign === '>=') {
+        tdA.innerHTML = `×(−1), + s<sub>${sIdx+1}</sub> ≥ 0`;
+        const row = [...aRow.map(v => -v), ...Array(mSlack).fill(0)];
+        row[n + sIdx] = 1;
+        tdC.innerHTML = `${fmtExpr(row, allNames)} = ${DualSimplexSolver.fmt(-bi)}`;
+        sIdx++;
+      } else { // '='
+        const bv = solver.basis[i];
+        tdA.innerHTML = `x<sub>${bv+1}</sub> — базисна`;
+        tdC.innerHTML = `${fmtExpr(aRow, varNames)} = ${DualSimplexSolver.fmt(bi)}`;
+      }
+
+      [tdN, tdS, tdO, tdA, tdC].forEach(td => tr.appendChild(td));
+      tbdy.appendChild(tr);
+    }
+
+    // Objective row in the table
+    const objTr = document.createElement('tr'); objTr.className = 'row-delta';
+    const tdON  = document.createElement('td'); tdON.textContent = 'Δ';
+    const tdOS  = document.createElement('td');
+    tdOS.innerHTML = dir === 'max' ? 'max→min' : 'min';
+    const tdOO  = document.createElement('td');
+    tdOO.innerHTML = `F = ${fmtExpr([...solver._cOrig], varNames)} → ${dir}`;
+    const tdOA  = document.createElement('td');
+    tdOA.innerHTML = dir === 'max'
+      ? 'Δ<sub>j</sub> = −c<sub>j</sub>'
+      : 'Δ<sub>j</sub> = c<sub>j</sub>';
+    const tdOC  = document.createElement('td');
+    const dCoeffs = [...deltaRow.slice(0, n + mSlack)];
+    tdOC.innerHTML = `${fmtExpr(dCoeffs, allNames)} &nbsp;[F = ${DualSimplexSolver.fmt(deltaRow[solver.bCol])}]`;
+    [tdON, tdOS, tdOO, tdOA, tdOC].forEach(td => objTr.appendChild(td));
+    tbdy.appendChild(objTr);
+    tbl.appendChild(tbdy);
+    p2.appendChild(tbl);
+    body.appendChild(p2);
+
+    // ── Phase 3: initial simplex tableau ────────────────────────
+    const p3 = document.createElement('div'); p3.className = 'phase';
+    const p3q = document.createElement('p'); p3q.className = 'phase-question';
+    p3q.textContent = 'Початкова симплекс-таблиця:';
+    p3.appendChild(p3q);
+    p3.appendChild(this._buildTable(0).wrap);
+    body.appendChild(p3);
+
+    // ── Phase 4: feasibility summary ─────────────────────────────
+    const p4 = document.createElement('div'); p4.className = 'phase';
+
+    const snap0      = solver.history[0];
+    const dualOk     = solver.isDualFeasible(snap0);
+    const primalInfeas = !solver.isPrimalFeasible(snap0);
+
+    const dualDiv = document.createElement('div');
+    dualDiv.className = `phase-feedback ${dualOk ? 'success' : 'error'}`;
+    dualDiv.innerHTML = dualOk
+      ? `✓ Подвійна допустимість: виконується (всі ${dualCond}) — метод застосовний`
+      : `✕ Подвійна допустимість: <strong>порушена</strong> — не всі ${dualCond}.<br>` +
+        `Двоїстий симплекс-метод вимагає ${dualCond} для всіх небазисних змінних ` +
+        `в початковій таблиці. Змініть задачу або оберіть інший метод.`;
+    p4.appendChild(dualDiv);
+
+    const primDiv = document.createElement('div');
+    primDiv.className = `phase-feedback ${primalInfeas ? 'success' : 'info'}`;
+    primDiv.innerHTML = primalInfeas
+      ? '✓ Є від\'ємні bᵢ — план первинно недопустимий (стартова умова двоїстого методу)'
+      : 'ℹ Всі bᵢ ≥ 0 — план вже первинно допустимий (ітерацій не потрібно, розв\'язок знайдено одразу)';
+    p4.appendChild(primDiv);
+
+    body.appendChild(p4);
   }
 
   /* ══════════════════════════════════════════
