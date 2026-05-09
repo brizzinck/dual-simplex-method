@@ -11,19 +11,29 @@
 class DualSimplexSolver {
   static EPSILON = 1e-9;
 
+  /* Eliminate floating-point noise: values within EPSILON of zero become 0 */
+  static clean(v) { return Math.abs(v) < DualSimplexSolver.EPSILON ? 0 : v; }
+
   /* ── Construction ───────────────────────────
      c      : Float64Array(n)   objective coefficients
      A      : Float64Array(m*n) constraint matrix, row-major
      b      : Float64Array(m)   RHS
-     signs  : string[]          '<=', '>=', '='  per row
+     signs  : string[]          '<=' or '>=' per row  ('=' is not supported)
      dir    : 'min' | 'max'
   ─────────────────────────────────────────── */
   constructor(c, A, b, signs, dir) {
+    if (signs.some(s => s === '=')) {
+      throw new Error(
+        'Обмеження типу "=" не підтримуються двоїстим симплекс-методом у цій реалізації. ' +
+        'Використовуйте лише ≤ або ≥.'
+      );
+    }
+
     this.n    = c.length;
     this.m    = b.length;
     this.dir  = dir;
 
-    // Convert max → min by negating c
+    // Convert max → min by negating c; display layer re-negates the Δ row for max
     this._cOrig = Float64Array.from(c);
     const cWork = dir === 'max'
       ? Float64Array.from(c, v => -v)
@@ -41,18 +51,16 @@ class DualSimplexSolver {
     // Fill constraint rows
     for (let i = 0; i < this.m; i++) {
       const sign = signs[i];
-      let rowMult = 1;
 
-      // For >= constraints: multiply row by -1 so b becomes ≤0
-      // giving a negative-b starting tableau suited for dual simplex
-      if (sign === '>=') rowMult = -1;
+      // For >= constraints: multiply row by -1 so b becomes negative,
+      // giving the dual-infeasible (primal-infeasible) start dual simplex needs.
+      // The slack absorbs the sign flip: -Ax + s = -b, s >= 0.
+      const rowMult = sign === '>=' ? -1 : 1;
 
       for (let j = 0; j < this.n; j++) {
         this._set(i, j, rowMult * A[i * this.n + j]);
       }
-      // slack variable for this row
-      this._set(i, this.n + i, rowMult * (sign === '>=' ? -1 : 1));
-      // RHS
+      this._set(i, this.n + i, 1); // slack coefficient is always +1 after row flip
       this._set(i, this.bCol, rowMult * b[i]);
     }
 
@@ -84,16 +92,21 @@ class DualSimplexSolver {
     });
   }
 
-  /* Return snapshot k as a plain 2-D array (rows × cols) */
+  /* Return snapshot k as a plain 2-D array (rows × cols), display-ready.
+     For max problems the Δ row is stored negated internally (max→min conversion);
+     we negate it back here so students see the original objective-row signs,
+     matching the guide's convention (Δⱼ ≤ 0 for max, Z in the RHS column). */
   getTableau(k) {
     const snap = this.history[k];
     if (!snap) return null;
-    const t = snap.tableau;
+    const t    = snap.tableau;
+    const sign = this.dir === 'max' ? -1 : 1;
     const result = [];
     for (let i = 0; i < this.rows; i++) {
       const row = [];
+      const s   = (i === this.m) ? sign : 1; // negate only the Δ row for max
       for (let j = 0; j < this.cols; j++) {
-        row.push(t[i * this.cols + j]);
+        row.push(s * t[i * this.cols + j]);
       }
       result.push(row);
     }
@@ -105,7 +118,7 @@ class DualSimplexSolver {
 
   /* ── Optimality / feasibility checks ───────── */
 
-  /* Dual feasibility: all Δⱼ ≥ 0 (min problem, after converting max) */
+  /* Dual feasibility: all Δⱼ ≥ 0 in the min-converted tableau */
   isDualFeasible(snap) {
     const t = snap ? snap.tableau : this.tableau;
     for (let j = 0; j < this.bCol; j++) {
@@ -161,24 +174,29 @@ class DualSimplexSolver {
 
   /* ── Gauss-Jordan pivot step ─────────────── */
   _pivot(pivotRow, pivotCol) {
+    const EPS = DualSimplexSolver.EPSILON;
+    const clean = DualSimplexSolver.clean;
+
     const pivotVal = this._get(pivotRow, pivotCol);
-    if (Math.abs(pivotVal) < DualSimplexSolver.EPSILON) {
+    if (Math.abs(pivotVal) < EPS) {
       throw new Error('Pivot element is effectively zero');
     }
 
-    // Scale pivot row
+    // Scale pivot row; the pivot column cell becomes exactly 1
     for (let j = 0; j < this.cols; j++) {
-      this._set(pivotRow, j, this._get(pivotRow, j) / pivotVal);
+      this._set(pivotRow, j, clean(this._get(pivotRow, j) / pivotVal));
     }
+    this._set(pivotRow, pivotCol, 1); // force exact 1 — avoids x/x != 1 artifacts
 
-    // Eliminate pivot column from all other rows
+    // Eliminate pivot column from all other rows (including objective row m)
     for (let i = 0; i < this.rows; i++) {
       if (i === pivotRow) continue;
       const factor = this._get(i, pivotCol);
-      if (Math.abs(factor) < DualSimplexSolver.EPSILON) continue;
+      if (Math.abs(factor) < EPS) continue;
       for (let j = 0; j < this.cols; j++) {
-        this._set(i, j, this._get(i, j) - factor * this._get(pivotRow, j));
+        this._set(i, j, clean(this._get(i, j) - factor * this._get(pivotRow, j)));
       }
+      this._set(i, pivotCol, 0); // force exact 0 — the defining result of elimination
     }
 
     this.basis[pivotRow] = pivotCol;
@@ -212,7 +230,12 @@ class DualSimplexSolver {
       this._saveSnapshot();
     }
 
-    this.status = this.isPrimalFeasible(null) ? 'optimal' : 'infeasible';
+    if (this.isPrimalFeasible(null)) {
+      this.status = 'optimal';
+    } else {
+      // Loop exited without primal feasibility — iteration limit hit
+      this.status = 'iteration_limit';
+    }
     return this._buildResult();
   }
 
@@ -260,7 +283,7 @@ class DualSimplexSolver {
     const correct = this.getTableau(snapIdx);
     return correct.map((row, i) =>
       row.map((val, j) => {
-        const uv = parseFloat(userGrid[i][j]);
+        const uv = DualSimplexSolver.parseFraction(String(userGrid[i][j]));
         if (isNaN(uv)) return false;
         return Math.abs(uv - val) <= DualSimplexSolver.EPSILON * 100 + 1e-6;
       })
@@ -316,6 +339,165 @@ class DualSimplexSolver {
   varName(colIdx) {
     if (colIdx < this.n) return `x${colIdx + 1}`;
     return `s${colIdx - this.n + 1}`;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════
+   CanonicalConverter — LP problem → dual-simplex tableau
+
+   Transforms a raw LP (c, A, b, signs, dir) into the canonical
+   form required by the Dual Simplex Method and returns a ready-to-use
+   matrix together with basis labels and column headers.
+
+   Output tableau layout (identical to DualSimplexSolver internal format):
+     Rows 0..m-1  : constraint rows
+     Row  m       : objective row  (Δⱼ / reduced costs)
+     Cols 0..n-1  : decision variables  x₁ … xₙ
+     Cols n..n+m-1: slack variables     s₁ … sₘ
+     Col  n+m     : RHS column          b
+═══════════════════════════════════════════════ */
+class CanonicalConverter {
+  static EPSILON = 1e-9;
+
+  /**
+   * Convert an LP problem to the canonical dual-simplex tableau.
+   *
+   * Transformation rules
+   * ────────────────────
+   * 1. Direction
+   *    max  →  min : negate every cⱼ.  The solver minimises; the caller
+   *                  negates the returned objective value to recover the max.
+   *    min  →  min : keep cⱼ as-is.
+   *
+   * 2. Constraint rows
+   *    '>=' row:  multiply the entire row by −1.
+   *               'a·x ≥ b'  becomes  '−a·x + sᵢ = −b'.
+   *               This makes bᵢ negative → primal infeasibility,
+   *               the required starting state for dual simplex.
+   *    '<=' row:  keep as-is.
+   *               'a·x ≤ b'  becomes   'a·x + sᵢ =  b'.
+   *    '='  row:  REJECTED — equality constraints need an artificial
+   *               variable or two-phase approach, which this method does
+   *               not implement.
+   *
+   *    In both supported cases the slack coefficient is always +1
+   *    (the row flip absorbs the sign for '>=' rows).
+   *
+   * 3. Objective row (Δⱼ)
+   *    With the all-slack initial basis, Δⱼ = cⱼ (min) for decision
+   *    variables and 0 for slacks.  The RHS cell starts at 0
+   *    (objective value at the origin).
+   *
+   * 4. Dual-feasibility guard
+   *    The method can only start if Δⱼ ≥ 0 for all j.  An error is
+   *    thrown when this precondition is violated so the caller can
+   *    surface a meaningful message rather than silently producing a
+   *    wrong answer.
+   *
+   * @param {number[]}    c      Objective coefficients [c₁ … cₙ]
+   * @param {number[][]}  A      Constraint matrix, m rows × n cols
+   * @param {number[]}    b      RHS vector [b₁ … bₘ]
+   * @param {string[]}    signs  Per-row inequality: '<=' | '>='
+   * @param {'min'|'max'} dir    Optimisation direction
+   *
+   * @returns {{
+   *   matrix:         number[][],   // (m+1) × (n+m+1) — last row = Δ
+   *   basisVariables: string[],     // e.g. ['s1', 's2', 's3']
+   *   headers:        string[]      // e.g. ['x1', 'x2', 's1', 's2', 's3', 'b']
+   * }}
+   *
+   * @throws {Error} on invalid input or violated dual-feasibility precondition
+   */
+  static convert(c, A, b, signs, dir) {
+    const n = c.length;
+    const m = b.length;
+
+    // ── Input validation ─────────────────────────────────────────
+    if (n < 1 || m < 1) {
+      throw new Error('The problem must have at least one variable and one constraint.');
+    }
+    if (signs.length !== m) {
+      throw new Error(
+        `signs array length (${signs.length}) does not match the number of constraints (${m}).`
+      );
+    }
+    if (A.length !== m) {
+      throw new Error(`Matrix A has ${A.length} rows but b has ${m} elements.`);
+    }
+    for (let i = 0; i < m; i++) {
+      if (!Array.isArray(A[i]) || A[i].length !== n) {
+        throw new Error(`Row ${i + 1} of A must have exactly ${n} elements.`);
+      }
+      if (signs[i] === '=') {
+        throw new Error(
+          `Constraint ${i + 1} uses "=". ` +
+          'Equality constraints are not supported — the Dual Simplex Method ' +
+          'requires a slack-variable basis. Use ≤ or ≥ only.'
+        );
+      }
+      if (signs[i] !== '<=' && signs[i] !== '>=') {
+        throw new Error(
+          `Constraint ${i + 1} has unknown sign "${signs[i]}". Use '<=' or '>='.`
+        );
+      }
+    }
+
+    // ── Step 1: direction normalisation (max → min) ──────────────
+    const cMin = dir === 'max' ? c.map(v => -v) : c.slice();
+
+    // ── Step 2: build constraint rows ────────────────────────────
+    const totalCols = n + m + 1;
+    const bCol      = n + m;       // index of the RHS column
+    const matrix    = [];
+
+    for (let i = 0; i < m; i++) {
+      const k   = signs[i] === '>=' ? -1 : 1;  // row multiplier
+      const row = new Array(totalCols).fill(0);
+
+      for (let j = 0; j < n; j++) {
+        row[j] = k * A[i][j];
+      }
+      row[n + i] = 1;       // slack sᵢ₊₁ — always +1 after the row flip
+      row[bCol]  = k * b[i];
+
+      matrix.push(row);
+    }
+
+    // ── Step 3: objective row (Δⱼ = reduced costs) ───────────────
+    const objRow = new Array(totalCols).fill(0);
+    for (let j = 0; j < n; j++) {
+      objRow[j] = cMin[j];
+    }
+    // objRow[bCol] stays 0 — current objective value at the origin
+    matrix.push(objRow); // appended at index m
+
+    // ── Step 4: dual-feasibility precondition check ───────────────
+    // Dual simplex needs Δⱼ ≥ 0 for all non-basic variables initially.
+    const violations = [];
+    for (let j = 0; j < n; j++) {
+      if (objRow[j] < -CanonicalConverter.EPSILON) {
+        violations.push(`Δ${j + 1} = ${objRow[j]}`);
+      }
+    }
+    if (violations.length > 0) {
+      throw new Error(
+        'The initial tableau is not dual-feasible ' +
+        `(negative reduced costs: ${violations.join(', ')}). ` +
+        'The Dual Simplex Method requires Δⱼ ≥ 0 for all j in the initial tableau.'
+      );
+    }
+
+    // ── Step 5: labels ────────────────────────────────────────────
+    const basisVariables = Array.from({ length: m }, (_, i) => `s${i + 1}`);
+
+    const headers = [
+      ...Array.from({ length: n }, (_, j) => `x${j + 1}`),
+      ...Array.from({ length: m }, (_, i) => `s${i + 1}`),
+      'b',
+    ];
+
+    return { matrix, basisVariables, headers };
   }
 }
 
@@ -1112,8 +1294,25 @@ class UIManager {
 
   /* ── Phase 3: pivot row selection ────────── */
   _renderPivotRowPhase(body, stepIdx, snapIdx, card) {
-    const solver    = this.solver;
-    const pivotRow  = this.result.steps[stepIdx].pivotRow;
+    const solver = this.solver;
+
+    // When stepIdx >= steps.length the solver found no valid pivot column → infeasible.
+    // We still need to show the pivot-row selection so the student sees WHY it's infeasible.
+    const isTerminalInfeasible = stepIdx >= this.result.steps.length;
+
+    let pivotRow;
+    if (!isTerminalInfeasible) {
+      pivotRow = this.result.steps[stepIdx].pivotRow;
+    } else {
+      // Derive most-negative b row directly from the snapshot
+      const tab = solver.getTableau(snapIdx);
+      pivotRow = -1;
+      let mostNeg = -DualSimplexSolver.EPSILON;
+      for (let i = 0; i < solver.m; i++) {
+        const bi = tab[i][solver.bCol];
+        if (bi < mostNeg) { mostNeg = bi; pivotRow = i; }
+      }
+    }
 
     const phase = document.createElement('div');
     phase.className = 'phase';
@@ -1138,14 +1337,24 @@ class UIManager {
       tr.addEventListener('click', () => {
         const userRow = parseInt(tr.dataset.row, 10);
         if (userRow === pivotRow) {
-          fb.className = 'phase-feedback success';
-          fb.textContent = `Правильно! Ведучий рядок — рядок ${pivotRow + 1} (${solver.varName(solver.getBasis(snapIdx)[pivotRow])}).`;
           tbody.querySelectorAll('tr.row-selectable').forEach(r => r.classList.remove('row-selectable'));
           tr.classList.add('pivot-row');
-          setTimeout(() => this._renderPivotColPhase(body, stepIdx, snapIdx, pivotRow, card), 600);
+
+          if (isTerminalInfeasible) {
+            // All a_rj ≥ 0 in this row → no pivot column exists → infeasible
+            fb.className = 'phase-feedback error';
+            fb.textContent =
+              `Рядок ${pivotRow + 1} — вірно. Але у цьому рядку всі елементи aᵣⱼ ≥ 0: ` +
+              'ведучого стовпця не існує — допустима область порожня (задача нерозв\'язна).';
+            setTimeout(() => this._showFinalResult(), 1200);
+          } else {
+            fb.className = 'phase-feedback success';
+            fb.textContent = `Правильно! Ведучий рядок — рядок ${pivotRow + 1} (${solver.varName(solver.getBasis(snapIdx)[pivotRow])}).`;
+            setTimeout(() => this._renderPivotColPhase(body, stepIdx, snapIdx, pivotRow, card), 600);
+          }
         } else {
           rowMisses++;
-          const tab  = solver.getTableau(snapIdx);
+          const tab   = solver.getTableau(snapIdx);
           const userB = DualSimplexSolver.fmt(tab[userRow][solver.bCol]);
           let hint = `Невірно. b${userRow + 1} = ${userB}.`;
           if (rowMisses === 1) {
@@ -1422,12 +1631,18 @@ class UIManager {
           ).join('')
         }</div>` +
         `<div class="result-objective">F(x) = ${obj}</div>`;
-    } else {
+    } else if (res.status === 'infeasible') {
       banner.className = 'result-banner infeasible';
       document.getElementById('resultIcon' ).textContent = '✕';
       document.getElementById('resultTitle').textContent = 'Задача не має розв\'язку';
       document.getElementById('resultBody' ).textContent =
-        'Серед від\'ємних aᵣⱼ у ведучому рядку немає від\'ємних елементів — множина допустимих розв\'язків порожня.';
+        'У ведучому рядку немає від\'ємних елементів aᵣⱼ — множина допустимих розв\'язків порожня.';
+    } else {
+      banner.className = 'result-banner infeasible';
+      document.getElementById('resultIcon' ).textContent = '!';
+      document.getElementById('resultTitle').textContent = 'Перевищено ліміт ітерацій';
+      document.getElementById('resultBody' ).textContent =
+        'Алгоритм не збігся за відведену кількість ітерацій. Перевірте коректність введених даних.';
     }
 
     banner.classList.remove('hidden');
