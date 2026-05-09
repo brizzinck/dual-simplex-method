@@ -186,16 +186,16 @@ class DualSimplexSolver {
   }
 
   /* Return snapshot k as a plain 2-D array (rows × cols), display-ready.
-     The Δ row is stored as Δⱼ = −cⱼ for max (max→min conversion) and
-     Δⱼ = +cⱼ for min.  Both are returned as-is so the display matches the
-     "Z − c·x = 0" canonical form used in Ukrainian textbooks:
-       • max: displayed Δⱼ = −cⱼ  (≥ 0 when cⱼ ≤ 0 → dual-feasible)
-       • min: displayed Δⱼ = +cⱼ  (≥ 0 when cⱼ ≥ 0 → dual-feasible)
-     Dual-feasibility condition for both: all displayed Δⱼ ≥ 0. */
+     The Δ row is stored as −cⱼ for max (max→min conversion) and as +cⱼ for
+     min.  Both are returned as-is (no sign flip) so the display matches the
+     canonical "Z − c·x = 0" form used in Ukrainian textbooks:
+       max example: stored Δⱼ = −cⱼ → displayed as −cⱼ (≤ 0 when cⱼ ≥ 0)
+       min example: stored Δⱼ = +cⱼ → displayed as +cⱼ (≥ 0 when cⱼ ≥ 0)
+     The RHS column already holds the current objective value F and is shown as-is. */
   getTableau(k) {
     const snap = this.history[k];
     if (!snap) return null;
-    const t      = snap.tableau;
+    const t = snap.tableau;
     const result = [];
     for (let i = 0; i < this.rows; i++) {
       const row = [];
@@ -212,13 +212,34 @@ class DualSimplexSolver {
 
   /* ── Optimality / feasibility checks ───────── */
 
-  /* Dual feasibility: all Δⱼ ≥ 0 in the min-converted tableau */
+  /* Dual feasibility — Δ row must have a uniform sign for non-basic columns.
+     For min:  stored Δⱼ = cⱼ, dual-feasible when all ≥ 0  (standard dual simplex).
+     For max:  stored Δⱼ = −cⱼ (from Z−c·x=0 form).  Two valid starting states:
+       • all stored ≤ 0  (cⱼ ≥ 0, e.g. max 4x₁+5x₂) — "studfile" convention
+       • all stored ≥ 0  (cⱼ ≤ 0, or equality-constraint modification) — "guide" convention
+     Both represent a point where no single-direction improvement is possible.     */
   isDualFeasible(snap) {
-    const t = snap ? snap.tableau : this.tableau;
+    const t   = snap ? snap.tableau : this.tableau;
+    const EPS = DualSimplexSolver.EPSILON;
+    let allGe = true, allLe = true;
     for (let j = 0; j < this.bCol; j++) {
-      if (t[this._idx(this.m, j)] < -DualSimplexSolver.EPSILON) return false;
+      const dj = t[this._idx(this.m, j)];
+      if (dj < -EPS) allGe = false;
+      if (dj >  EPS) allLe = false;
     }
-    return true;
+    // min requires all ≥ 0; max accepts either uniform sign
+    return this.dir === 'max' ? (allLe || allGe) : allGe;
+  }
+
+  /* Which dual condition is satisfied (for display messages). */
+  dualFeasSign(snap) {
+    const t   = snap ? snap.tableau : this.tableau;
+    const EPS = DualSimplexSolver.EPSILON;
+    let allLe = true;
+    for (let j = 0; j < this.bCol; j++) {
+      if (t[this._idx(this.m, j)] > EPS) { allLe = false; break; }
+    }
+    return allLe ? '≤' : '≥'; // returns '≤' if all Δⱼ ≤ 0, else '≥'
   }
 
   /* Primal feasibility: all bᵢ ≥ 0 */
@@ -936,9 +957,11 @@ class UIManager {
   _renderCanonicalForm() {
     const solver  = this.solver;
     const { n, m, dir, mSlack } = solver;
-    // Dual-feasibility condition is Δⱼ ≥ 0 for both min and max.
-    // For max, stored Δⱼ = −cⱼ, so Δⱼ ≥ 0 means cⱼ ≤ 0 (typical "dual-feasible max").
-    const dualCond = 'Δⱼ ≥ 0';
+    // Dual-feasibility condition depends on which convention the problem uses.
+    // Determined dynamically from the actual Δ-row sign.
+    const snap0    = solver.history[0];
+    const dualSign = solver.dualFeasSign(snap0); // '≤' or '≥'
+    const dualCond = `Δⱼ ${dualSign} 0`;
 
     const { card, body } = this._makeCard('К', 'Канонічна форма задачі');
     this.output.appendChild(card);
@@ -1038,13 +1061,15 @@ class UIManager {
     const objTr = document.createElement('tr'); objTr.className = 'row-delta';
     const tdON  = document.createElement('td'); tdON.textContent = 'Δ';
     const tdOS  = document.createElement('td');
-    tdOS.innerHTML = dir === 'max' ? 'max→min' : 'min';
+    tdOS.innerHTML = dir === 'max' ? 'max' : 'min';
     const tdOO  = document.createElement('td');
     tdOO.innerHTML = `F = ${fmtExpr([...solver._cOrig], varNames)} → ${dir}`;
     const tdOA  = document.createElement('td');
+    // For max: stored Δⱼ = −cⱼ (from Z − c·x = 0).
+    // For min: stored Δⱼ = +cⱼ.  Condition for dual simplex: ${dualCond}.
     tdOA.innerHTML = dir === 'max'
-      ? 'Δ<sub>j</sub> = −c<sub>j</sub>'
-      : 'Δ<sub>j</sub> = c<sub>j</sub>';
+      ? `Δ<sub>j</sub> = −c<sub>j</sub> &nbsp;(${dualCond})`
+      : `Δ<sub>j</sub> = c<sub>j</sub> &nbsp;(${dualCond})`;
     const tdOC  = document.createElement('td');
     const dCoeffs = [...deltaRow.slice(0, n + mSlack)];
     tdOC.innerHTML = `${fmtExpr(dCoeffs, allNames)} &nbsp;[F = ${DualSimplexSolver.fmt(deltaRow[solver.bCol])}]`;
@@ -1065,8 +1090,8 @@ class UIManager {
     // ── Phase 4: feasibility summary ─────────────────────────────
     const p4 = document.createElement('div'); p4.className = 'phase';
 
-    const snap0      = solver.history[0];
-    const dualOk     = solver.isDualFeasible(snap0);
+    // snap0 already defined above (for dualCond)
+    const dualOk       = solver.isDualFeasible(snap0);
     const primalInfeas = !solver.isPrimalFeasible(snap0);
 
     const dualDiv = document.createElement('div');
