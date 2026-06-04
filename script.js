@@ -2125,11 +2125,13 @@ class UIManager {
     const tablePhase = document.createElement('div');
     tablePhase.className = 'phase';
 
-    if (this.mode === 'student' && stepIdx === 0) {
-      // First iteration: student already verified this tableau in the canonical form step — show read-only
+    if (this.mode === 'student') {
+      // Table was already verified in the previous step (canonical form or Gauss-Jordan recalc) — show read-only
       const tq = document.createElement('p');
       tq.className = 'phase-question';
-      tq.textContent = 'Поточна симплекс-таблиця (вже перевірена на попередньому кроці):';
+      tq.textContent = stepIdx === 0
+        ? 'Поточна симплекс-таблиця (перевірена на кроці канонічної форми):'
+        : 'Поточна симплекс-таблиця (результат попереднього кроку Гаусса-Жордана):';
       tablePhase.appendChild(tq);
       tablePhase.appendChild(this._buildTable(snapIdx).wrap);
       body.appendChild(tablePhase);
@@ -2141,69 +2143,6 @@ class UIManager {
 
       card.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
-    }
-
-    if (this.mode === 'student') {
-      // b column and Δ row are blank — student fills them in
-      const tq = document.createElement('p');
-      tq.className = 'phase-question';
-      tq.textContent = 'Поточна симплекс-таблиця: введіть значення стовпця b та рядку Δ:';
-      tablePhase.appendChild(tq);
-
-      const { wrap: inputWrap, inputCells } = this._buildInputTable(snapIdx);
-      tablePhase.appendChild(inputWrap);
-
-      const verifyBar = document.createElement('div');
-      verifyBar.className = 'recalc-controls';
-      const btnVerify = document.createElement('button');
-      btnVerify.className = 'btn btn-primary';
-      btnVerify.textContent = 'Перевірити';
-      verifyBar.appendChild(btnVerify);
-      tablePhase.appendChild(verifyBar);
-
-      const verifyFb = document.createElement('div');
-      verifyFb.className = 'phase-feedback hidden';
-      tablePhase.appendChild(verifyFb);
-      body.appendChild(tablePhase);
-
-      // ── Phase 2 is hidden until table verified ──
-      const optPhase = document.createElement('div');
-      optPhase.className = 'phase hidden';
-      this._buildOptPhase(optPhase, snapIdx, stepIdx, body, card);
-      body.appendChild(optPhase);
-
-      let verifyMisses = 0;
-      btnVerify.addEventListener('click', () => {
-        let allOk = true;
-        inputCells.forEach(({ inp, correctVal }) => {
-          inp.classList.remove('correct', 'wrong');
-          const uv = DualSimplexSolver.parseFraction(inp.value);
-          const ok = !isNaN(uv) && Math.abs(uv - correctVal) <= 1e-6;
-          inp.classList.add(ok ? 'correct' : 'wrong');
-          if (!ok) allOk = false;
-        });
-
-        if (allOk) {
-          verifyFb.className = 'phase-feedback success';
-          verifyFb.textContent = 'Правильно! Тепер перевірте оптимальність плану.';
-          btnVerify.disabled = true;
-          optPhase.classList.remove('hidden');
-          optPhase.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        } else {
-          verifyMisses++;
-          let msg = 'Деякі значення невірні (червоний колір).';
-          if (verifyMisses === 1) {
-            msg += ' Стовпець b: праві частини обмежень (для ≥ — зі зміною знаку). Рядок Δ: знижені оцінки небазисних змінних (для max — від\'ємні cⱼ); для базисних — 0; стовпець b рядка Δ — поточне значення F.';
-          } else {
-            msg += ' Підказка: для ≥ рядок множиться на −1 (b і коефіцієнти змінюють знак). Для рівностей (=) базисна змінна вже врахована в рядку Δ — значення Δⱼ для неї дорівнює 0.';
-          }
-          verifyFb.className = 'phase-feedback error';
-          verifyFb.textContent = msg;
-        }
-      });
-
-      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      return; // optPhase is already appended above; skip the code below
     }
 
     // Guide mode: show full read-only table immediately
