@@ -2125,6 +2125,24 @@ class UIManager {
     const tablePhase = document.createElement('div');
     tablePhase.className = 'phase';
 
+    if (this.mode === 'student' && stepIdx === 0) {
+      // First iteration: student already verified this tableau in the canonical form step — show read-only
+      const tq = document.createElement('p');
+      tq.className = 'phase-question';
+      tq.textContent = 'Поточна симплекс-таблиця (вже перевірена на попередньому кроці):';
+      tablePhase.appendChild(tq);
+      tablePhase.appendChild(this._buildTable(snapIdx).wrap);
+      body.appendChild(tablePhase);
+
+      const optPhase = document.createElement('div');
+      optPhase.className = 'phase';
+      this._buildOptPhase(optPhase, snapIdx, stepIdx, body, card);
+      body.appendChild(optPhase);
+
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
     if (this.mode === 'student') {
       // b column and Δ row are blank — student fills them in
       const tq = document.createElement('p');
@@ -2313,10 +2331,13 @@ class UIManager {
     card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
     let rowMisses = 0;
+    let rowSelected = false;
     tbody.querySelectorAll('tr.row-selectable').forEach(tr => {
       tr.addEventListener('click', () => {
+        if (rowSelected) return;
         const userRow = parseInt(tr.dataset.row, 10);
         if (userRow === pivotRow) {
+          rowSelected = true;
           tbody.querySelectorAll('tr.row-selectable').forEach(r => r.classList.remove('row-selectable'));
           tr.classList.add('pivot-row');
 
@@ -2378,10 +2399,13 @@ class UIManager {
     card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
     let colMisses = 0;
+    let colSelected = false;
     thead.querySelectorAll('th.col-selectable').forEach(th => {
       th.addEventListener('click', () => {
+        if (colSelected) return;
         const userCol = parseInt(th.dataset.col, 10);
         if (userCol === pivotCol) {
+          colSelected = true;
           fb.className = 'phase-feedback success';
           fb.textContent = `Правильно! Ведучий стовпець — ${solver.varName(pivotCol)}.`;
           thead.querySelectorAll('th.col-selectable').forEach(h => h.classList.remove('col-selectable'));
