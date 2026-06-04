@@ -954,6 +954,15 @@ class StepAnimator {
     );
     const te = this.c.querySelector('.demo-step-text');
     if (te && s.text != null) te.innerHTML = s.text;
+    const fe = this.c.querySelector('.demo-formula');
+    if (fe) {
+      if (s.formula) {
+        fe.textContent = s.formula;
+        fe.classList.remove('hidden');
+      } else {
+        fe.classList.add('hidden');
+      }
+    }
     const ce = this.c.querySelector('.demo-counter');
     if (ce) ce.textContent = `${this.idx + 1} / ${this.steps.length}`;
   }
@@ -1014,33 +1023,49 @@ const HelpContent = (() => {
       ]
     ),
     steps: [
-      { text:'Завдання: перетворити задачу на стандартний вигляд для двоїстого симплекс-методу.', delay:2200 },
       {
-        text:'Рядок 1: знак <b>≤</b> → коефіцієнти без змін (1, 2), b = 4. Ставимо <b>s₁ = 1</b> у своєму стовпці.',
+        text:'Є два рядки обмежень: перший ≤, другий ≥. Будуємо початкову симплекс-таблицю за правилами.',
+        delay:2000,
+      },
+      {
+        text:'Рядок 1 — знак <b>≤</b>: коефіцієнти залишаємо без змін, b = 4. Ставимо s₁ = 1 у своєму стовпці, s₂ = 0.',
+        formula:'≤  →  x₁ + 2x₂ + s₁ = 4\n     коефіцієнти (1, 2) → без змін, b = 4, s₁ = 1',
         cells:[{ sel:'td[data-r="0"]', cls:'hl-row' }],
         vals:[ {sel:'td[data-r="0"][data-c="0"]',text:'1'}, {sel:'td[data-r="0"][data-c="1"]',text:'2'},
                {sel:'td[data-r="0"][data-c="2"]',text:'1'}, {sel:'td[data-r="0"][data-c="3"]',text:'0'},
                {sel:'td[data-r="0"][data-c="4"]',text:'4'} ],
-        delay:2600,
+        delay:2800,
       },
       {
-        text:'Рядок 2: знак <b>≥</b> → множимо на −1: коефіцієнти (1→−1, 1→−1), b: 3→−3. Ставимо <b>s₂ = 1</b>.',
+        text:'Рядок 2 — знак <b>≥</b>: множимо ВЕСЬ рядок і b на −1. Потім ставимо s₂ = 1.',
+        formula:'≥  →  x₁ + x₂ ≥ 3  | ×(−1)\n     −x₁ − x₂ + s₂ = −3\n     коефіцієнти (1,1)→(−1,−1), b: 3→−3',
         cells:[{ sel:'td[data-r="1"]', cls:'hl-neg' }],
         vals:[ {sel:'td[data-r="1"][data-c="0"]',text:'−1'}, {sel:'td[data-r="1"][data-c="1"]',text:'−1'},
                {sel:'td[data-r="1"][data-c="2"]',text:'0'},  {sel:'td[data-r="1"][data-c="3"]',text:'1'},
                {sel:'td[data-r="1"][data-c="4"]',text:'−3'} ],
-        delay:2600,
+        delay:2800,
       },
       {
-        text:'Рядок Δ: <code>min</code> → Δⱼ = cⱼ, тому Δ₁=2, Δ₂=3. Для s₁, s₂: 0. Стовпець b = 0.',
+        text:'Рядок Δ: напрямок <b>min</b> → Δⱼ = cⱼ. Для змінних sᵢ: Δ = 0. Стовпець b = 0 (F на початку).',
+        formula:'min  →  Δ₁ = c₁ = 2\n         Δ₂ = c₂ = 3\n         Δₛ₁= Δₛ₂= 0,  b = 0',
         cells:[{ sel:'td[data-r="2"]', cls:'hl-warn' }],
         vals:[ {sel:'td[data-r="2"][data-c="0"]',text:'2'}, {sel:'td[data-r="2"][data-c="1"]',text:'3'},
                {sel:'td[data-r="2"][data-c="2"]',text:'0'}, {sel:'td[data-r="2"][data-c="3"]',text:'0'},
                {sel:'td[data-r="2"][data-c="4"]',text:'0'} ],
-        delay:2200,
+        delay:2500,
       },
       {
-        text:'✓ Таблиця готова. b₂ = −3 &lt; 0 → план прімально недопустимий → запускаємо двоїстий метод.',
+        text:'Перевірка стартових умов: b₁ = 4 ≥ 0 ✓, b₂ = −3 &lt; 0 ✗ → є від\'ємне bᵢ — стартова умова двоїстого методу.',
+        formula:'b₁ = 4 ≥ 0  → рядок допустимий\nb₂ = −3 < 0 → рядок недопустимий ← стартова умова',
+        cells:[
+          {sel:'td[data-r="0"][data-c="4"]', cls:'hl-pos'},
+          {sel:'td[data-r="1"][data-c="4"]', cls:'hl-neg'},
+        ],
+        delay:2500,
+      },
+      {
+        text:'✓ Таблиця побудована. Подвійна допустимість: Δ₁=2≥0, Δ₂=3≥0 → метод застосовний.',
+        formula:'Δⱼ ≥ 0 для всіх j → подвійна допустимість ✓\nb₂ < 0           → прімальна недопустимість ✓\nДвоїстий симплекс-метод можна застосовувати!',
         cells:[
           {sel:'td[data-r="0"]', cls:'hl-pos'}, {sel:'td[data-r="1"]', cls:'hl-neg'}, {sel:'td[data-r="2"]', cls:'hl-warn'},
         ],
@@ -1065,22 +1090,37 @@ const HelpContent = (() => {
       ]
     ),
     steps: [
-      { text:'Потрібно перевірити кожен рядок — чи b ≥ 0? Дивимося на стовпець b.', delay:1800 },
       {
-        text:'b₁ = 2 ≥ 0 ✓ — рядок 1 у нормі.',
+        text:'Оптимальність перевіряється за стовпцем <b>b</b>. Потрібно щоб усі bᵢ ≥ 0.',
+        formula:'Критерій оптимальності:\n  всі bᵢ ≥ 0  →  план оптимальний\n  є bᵢ < 0   →  потрібна ітерація',
+        delay:2000,
+      },
+      {
+        text:'b₁ = 2 ≥ 0 ✓ — рядок 1 допустимий.',
+        formula:'b₁ = 2 ≥ 0  ✓',
         cells:[{sel:'td[data-r="0"][data-c="4"]', cls:'hl-pos'}],
         delay:1800,
       },
       {
-        text:'b₂ = −3 &lt; 0 ✗ — знайшли від\'ємне! Оптимальність не досягнута.',
+        text:'b₂ = −3 &lt; 0 ✗ — знайдено від\'ємне! Оптимальності немає.',
+        formula:'b₂ = −3 < 0  ✗  ← порушення!',
         cells:[
           {sel:'td[data-r="0"][data-c="4"]', cls:'hl-pos'},
           {sel:'td[data-r="1"][data-c="4"]', cls:'hl-neg'},
         ],
-        delay:2000,
+        delay:1800,
       },
       {
-        text:'→ Відповідь: план <b>НЕ оптимальний</b> (є b₂ = −3 &lt; 0). Виконуємо ітерацію двоїстого методу.',
+        text:'Є від\'ємні bᵢ → план прімально <b>недопустимий</b> → виконуємо ітерацію.',
+        cells:[
+          {sel:'td[data-r="0"][data-c="4"]', cls:'hl-pos'},
+          {sel:'td[data-r="1"][data-c="4"]', cls:'hl-neg'},
+        ],
+        delay:1500,
+      },
+      {
+        text:'→ Відповідь: план <b>НЕ оптимальний</b>. Переходимо до вибору ведучого рядка.',
+        formula:'∃ bᵢ < 0  →  "Ні, потрібна ітерація"',
         cells:[{sel:'td[data-r="1"]', cls:'hl-neg'}],
       },
     ],
@@ -1104,14 +1144,20 @@ const HelpContent = (() => {
       ]
     ),
     steps: [
-      { text:'Переглядаємо стовпець b: шукаємо від\'ємні значення.', delay:1800 },
       {
-        text:'b₁ = 3 ≥ 0 ✓ — цей рядок не підходить.',
+        text:'Шукаємо ведучий рядок. Правило: рядок з <b>найбільш від\'ємним bᵢ</b>.',
+        formula:'Ведучий рядок r: bᵣ = min{ bᵢ : bᵢ < 0 }',
+        delay:2000,
+      },
+      {
+        text:'b₁ = 3 ≥ 0 — цей рядок не підходить (bᵢ невід\'ємне).',
+        formula:'b₁ = 3 ≥ 0  → ігноруємо',
         cells:[{sel:'td[data-r="0"][data-c="3"]', cls:'hl-pos'}],
         delay:1800,
       },
       {
-        text:'b₂ = −5 &lt; 0 ✗ — кандидат на ведучий рядок.',
+        text:'b₂ = −5 &lt; 0 — перший кандидат.',
+        formula:'b₂ = −5 < 0  → кандидат',
         cells:[
           {sel:'td[data-r="0"][data-c="3"]', cls:'hl-pos'},
           {sel:'td[data-r="1"][data-c="3"]', cls:'hl-neg'},
@@ -1119,16 +1165,28 @@ const HelpContent = (() => {
         delay:1800,
       },
       {
-        text:'b₃ = −1 &lt; 0 ✗ — теж від\'ємне, але −1 &gt; −5 (не найменше).',
+        text:'b₃ = −1 &lt; 0 — теж від\'ємне, але −1 &gt; −5.',
+        formula:'b₃ = −1 < 0  → кандидат\nАле: −5 < −1  → рядок 2 "гірше"',
         cells:[
           {sel:'td[data-r="0"][data-c="3"]', cls:'hl-pos'},
           {sel:'td[data-r="1"][data-c="3"]', cls:'hl-neg'},
           {sel:'td[data-r="2"][data-c="3"]', cls:'hl-warn'},
         ],
+        delay:1800,
+      },
+      {
+        text:'Порівнюємо: min(−5, −1) = −5 → обираємо рядок 2.',
+        formula:'min(b₂, b₃) = min(−5, −1) = −5\n→ ведучий рядок = рядок 2',
+        cells:[
+          {sel:'td[data-r="0"][data-c="3"]', cls:'hl-pos'},
+          {sel:'td[data-r="1"][data-c="3"]', cls:'hl-neg'},
+          {sel:'td[data-r="2"][data-c="3"]', cls:'hl-warn'},
+          {sel:'td[data-r="1"]', cls:'hl-row'},
+        ],
         delay:2000,
       },
       {
-        text:'→ Ведучий рядок = <b>рядок 2</b> (b₂ = −5 — найменше значення у стовпці b).',
+        text:'→ <b>Ведучий рядок = рядок 2</b> (найбільш від\'ємне b₂ = −5).',
         cells:[{sel:'td[data-r="1"]', cls:'hl-neg'}],
       },
     ],
@@ -1152,36 +1210,50 @@ const HelpContent = (() => {
     ),
     steps: [
       {
-        text:'Ведучий рядок — рядок 2. Шукаємо від\'ємні елементи у цьому рядку.',
+        text:'Ведучий рядок — рядок 2 (виділено). Тепер вибираємо ведучий стовпець.',
+        formula:'Ведучий стовпець s:\n  мін{ |Δⱼ/aᵣⱼ| : aᵣⱼ < 0 }',
         cells:[{sel:'td[data-r="1"]', cls:'hl-row'}],
         delay:2000,
       },
       {
-        text:'a₂₁ = −2 &lt; 0 ✓ кандидат. a₂₂ = 1 ≥ 0 — ігноруємо. a₂₃ = −1 &lt; 0 ✓ кандидат.',
+        text:'Шукаємо <b>від\'ємні елементи</b> у ведучому рядку: a₂₁ = −2 &lt; 0 ✓, a₂₂ = 1 ≥ 0 — ігноруємо, a₂₃ = −1 &lt; 0 ✓.',
+        formula:'a₂₁ = −2 < 0  → кандидат\na₂₂ =  1 ≥ 0  → ігноруємо\na₂₃ = −1 < 0  → кандидат',
         cells:[
           {sel:'td[data-r="1"][data-c="0"]', cls:'hl-neg'},
           {sel:'td[data-r="1"][data-c="2"]', cls:'hl-neg'},
         ],
-        delay:2600,
+        delay:2800,
       },
       {
-        text:'Відношення для x₁: |Δ₁ / a₂₁| = |4 / (−2)| = <b>2</b>.',
+        text:'Відношення для x₁ (j=1): |Δ₁ / a₂₁|',
+        formula:'|Δ₁ / a₂₁| = |4 / (−2)| = 4/2 = 2',
         cells:[
           {sel:'td[data-r="1"][data-c="0"]', cls:'hl-neg'},
           {sel:'td[data-r="2"][data-c="0"]', cls:'hl-warn'},
         ],
-        delay:2400,
+        delay:2200,
       },
       {
-        text:'Відношення для s₁: |Δ₃ / a₂₃| = |3 / (−1)| = <b>3</b>. Порівнюємо: 2 &lt; 3.',
+        text:'Відношення для s₁ (j=3): |Δ₃ / a₂₃|',
+        formula:'|Δ₃ / a₂₃| = |3 / (−1)| = 3/1 = 3',
         cells:[
           {sel:'td[data-r="1"][data-c="2"]', cls:'hl-neg'},
           {sel:'td[data-r="2"][data-c="2"]', cls:'hl-warn'},
         ],
-        delay:2400,
+        delay:2200,
       },
       {
-        text:'→ Ведучий стовпець = <b>x₁</b> (мінімальне відношення = 2). Ведучий елемент = −2.',
+        text:'Порівнюємо: 2 &lt; 3 → мінімум у стовпці x₁.',
+        formula:'min(2, 3) = 2  →  ведучий стовпець = x₁',
+        cells:[
+          {sel:'td[data-r="0"][data-c="0"]', cls:'hl-col'},
+          {sel:'td[data-r="1"][data-c="0"]', cls:'hl-neg'},
+          {sel:'td[data-r="2"][data-c="0"]', cls:'hl-col'},
+        ],
+        delay:2200,
+      },
+      {
+        text:'→ <b>Ведучий стовпець = x₁</b>. Ведучий елемент a₂₁ = −2.',
         cells:[
           {sel:'td[data-r="0"][data-c="0"]', cls:'hl-col'},
           {sel:'td[data-r="1"][data-c="0"]', cls:'hl-pivot'},
@@ -1210,17 +1282,25 @@ const HelpContent = (() => {
     ),
     steps: [
       {
-        text:'Ведучий елемент a₂₁ = −2. Він стоїть на перетині ведучого рядка (рядок 2) і ведучого стовпця (x₁).',
+        text:'Ведучий елемент a₂₁ = −2 — на перетині ведучого рядка (рядок 2) та стовпця (x₁).',
+        formula:'Ведучий елемент: a₂₁ = −2',
         cells:[
           {sel:'td[data-r="1"]',             cls:'hl-row'},
           {sel:'td[data-r="0"][data-c="0"]', cls:'hl-col'},
           {sel:'td[data-r="2"][data-c="0"]', cls:'hl-col'},
           {sel:'td[data-r="1"][data-c="0"]', cls:'hl-pivot'},
         ],
-        delay:2600,
+        delay:2500,
       },
       {
-        text:'Крок 1 — ведучий рядок ÷ (−2): [−2,1,0,1,−6] ÷ (−2) → <b>[1, −½, 0, −½, 3]</b>.',
+        text:'<b>Крок 1: ведучий рядок ÷ ведучий елемент</b>. Ділимо кожен елемент рядка 2 на −2.',
+        formula:'Рядок 2 ÷ (−2):\n[−2, 1, 0, 1, −6] ÷ (−2)',
+        cells:[{sel:'td[data-r="1"]', cls:'hl-row'}],
+        delay:2500,
+      },
+      {
+        text:'Новий ведучий рядок (рядок 2):',
+        formula:'[−2÷(−2), 1÷(−2), 0÷(−2), 1÷(−2), −6÷(−2)]\n= [  1,    −½,      0,    −½,      3  ]',
         cells:[{sel:'td[data-r="1"]', cls:'hl-new'}],
         vals:[
           {sel:'td[data-r="1"][data-c="0"]',text:'1'},   {sel:'td[data-r="1"][data-c="1"]',text:'−1/2'},
@@ -1230,15 +1310,17 @@ const HelpContent = (() => {
         delay:2800,
       },
       {
-        text:'Крок 2 — рядок 1: коефіцієнт a₁₁ = 1. Рядок 1 = рядок 1 − <b>1</b> × новий_ведучий_рядок.',
+        text:'<b>Крок 2: інші рядки.</b> Рядок 1: коефіцієнт = a₁₁ = 1 (зі старої таблиці).',
+        formula:'Новий рядок 1 = Старий рядок 1 − 1 × Новий рядок 2\n= [1, 2, 1, 0, 4] − 1×[1, −½, 0, −½, 3]',
         cells:[
           {sel:'td[data-r="0"]', cls:'hl-calc'},
           {sel:'td[data-r="1"]', cls:'hl-row'},
         ],
-        delay:2600,
+        delay:2800,
       },
       {
-        text:'[1,2,1,0,4] − 1×[1,−½,0,−½,3] → <b>[0, 5/2, 1, 1/2, 1]</b>.',
+        text:'Новий рядок 1:',
+        formula:'[1−1·1, 2−1·(−½), 1−1·0, 0−1·(−½), 4−1·3]\n= [  0,    5/2,      1,    1/2,      1  ]',
         cells:[{sel:'td[data-r="0"]', cls:'hl-new'}],
         vals:[
           {sel:'td[data-r="0"][data-c="0"]',text:'0'},   {sel:'td[data-r="0"][data-c="1"]',text:'5/2'},
@@ -1248,25 +1330,28 @@ const HelpContent = (() => {
         delay:2800,
       },
       {
-        text:'Крок 3 — рядок Δ: Δ₁ = 4. Рядок Δ = рядок Δ − <b>4</b> × новий_ведучий_рядок.',
+        text:'<b>Крок 3: рядок Δ.</b> Коефіцієнт = Δ₁ = 4 (зі старої таблиці).',
+        formula:'Новий рядок Δ = Старий рядок Δ − 4 × Новий рядок 2\n= [4, 3, 0, 0, 0] − 4×[1, −½, 0, −½, 3]',
         cells:[
           {sel:'td[data-r="2"]', cls:'hl-calc'},
           {sel:'td[data-r="1"]', cls:'hl-row'},
         ],
-        delay:2600,
+        delay:2800,
       },
       {
-        text:'[4,3,0,0,0] − 4×[1,−½,0,−½,3] → <b>[0, 5, 0, 2, −12]</b>.',
+        text:'Новий рядок Δ:',
+        formula:'[4−4·1, 3−4·(−½), 0−4·0, 0−4·(−½), 0−4·3]\n= [  0,     5,        0,     2,       −12 ]',
         cells:[{sel:'td[data-r="2"]', cls:'hl-new'}],
         vals:[
           {sel:'td[data-r="2"][data-c="0"]',text:'0'}, {sel:'td[data-r="2"][data-c="1"]',text:'5'},
           {sel:'td[data-r="2"][data-c="2"]',text:'0'}, {sel:'td[data-r="2"][data-c="3"]',text:'2'},
           {sel:'td[data-r="2"][data-c="4"]',text:'−12'},
         ],
-        delay:2200,
+        delay:2800,
       },
       {
-        text:'✓ Таблиця перерахована. Стовпець x₁ тепер одиничний. Базисна змінна рядка 2 стала <b>x₁</b>.',
+        text:'✓ Крок Гаусса-Жордана завершено! Стовпець x₁ тепер одиничний: 0, 1, 0.',
+        formula:'Стовпець x₁ після перетворення: [0, 1, 0]\nБазисна змінна рядка 2 змінилась: s₂ → x₁',
         cells:[
           {sel:'td[data-r="0"]', cls:'hl-pos'},
           {sel:'td[data-r="1"]', cls:'hl-pos'},
@@ -1438,6 +1523,7 @@ class UIManager {
     tbdy.appendChild(objTr);
     tbl.appendChild(tbdy);
     p2.appendChild(tbl);
+    if (this.mode === 'student') p2.classList.add('hidden');
     body.appendChild(p2);
 
     // ── Shared helper: build the feasibility-summary phase ──────
@@ -1520,6 +1606,7 @@ class UIManager {
         verifyFb.className = 'phase-feedback success';
         verifyFb.textContent = 'Правильно! Канонічну форму побудовано вірно.';
         btnVerify.disabled = true;
+        p2.classList.remove('hidden');
         p4.classList.remove('hidden');
         p4.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         if (this.result) {
@@ -1943,6 +2030,10 @@ class UIManager {
     const stepText = document.createElement('div');
     stepText.className = 'demo-step-text'; stepText.textContent = 'Натисніть ▶ для перегляду прикладу';
     demo.appendChild(stepText);
+
+    const formulaEl = document.createElement('div');
+    formulaEl.className = 'demo-formula hidden';
+    demo.appendChild(formulaEl);
 
     const controls = document.createElement('div'); controls.className = 'demo-controls';
     const btnPlay = document.createElement('button'); btnPlay.className = 'btn-demo';           btnPlay.textContent = '▶ Програти';
@@ -2445,6 +2536,113 @@ class UIManager {
     });
   }
 
+  /* ── Post-solve explanation card (student mode, optimal only) ── */
+  _renderSolutionExplanation() {
+    const solver = this.solver;
+    const res    = this.result;
+
+    const { card, body } = this._makeCard('★', 'Розбір розв\'язку');
+    this.output.appendChild(card);
+
+    // ── Section 1: optimal variable values ──────────────────────
+    const s1 = document.createElement('div'); s1.className = 'phase';
+    const s1q = document.createElement('p'); s1q.className = 'phase-question';
+    s1q.textContent = 'Оптимальний план:';
+    s1.appendChild(s1q);
+
+    const chipsWrap = document.createElement('div');
+    chipsWrap.className = 'solution-vars';
+    Array.from(res.x).forEach((v, j) => {
+      const chip = document.createElement('div');
+      const isZero = Math.abs(v) < DualSimplexSolver.EPSILON;
+      chip.className = 'solution-chip' + (isZero ? ' zero' : '');
+
+      const varSpan = document.createElement('span'); varSpan.className = 'sol-var';
+      varSpan.textContent = `x${j + 1}`;
+      const eqSpan = document.createElement('span'); eqSpan.className = 'sol-eq';
+      eqSpan.textContent = '=';
+      const valSpan = document.createElement('span'); valSpan.className = 'sol-val';
+      valSpan.textContent = DualSimplexSolver.fmt(v);
+
+      chip.appendChild(varSpan);
+      chip.appendChild(eqSpan);
+      chip.appendChild(valSpan);
+      chipsWrap.appendChild(chip);
+    });
+    s1.appendChild(chipsWrap);
+    body.appendChild(s1);
+
+    // ── Section 2: objective function verification ───────────────
+    const s2 = document.createElement('div'); s2.className = 'phase';
+    const s2q = document.createElement('p'); s2q.className = 'phase-question';
+    s2q.textContent = 'Перевірка цільової функції:';
+    s2.appendChild(s2q);
+
+    const n = solver.n;
+    const cOrig = solver._cOrig;
+    const xVals = res.x;
+
+    // Build the F(x*) = ... line
+    const termParts = [];
+    const productParts = [];
+    for (let j = 0; j < n; j++) {
+      termParts.push(`${DualSimplexSolver.fmt(cOrig[j])}·x${j + 1}*`);
+      productParts.push(`${DualSimplexSolver.fmt(cOrig[j])}·${DualSimplexSolver.fmt(xVals[j])}`);
+    }
+    const fVal = DualSimplexSolver.fmt(res.objectiveValue);
+    const verifyLine =
+      `F(x*) = ${termParts.join(' + ')}\n` +
+      `      = ${productParts.join(' + ')}\n` +
+      `      = ${fVal}`;
+
+    const verifyBox = document.createElement('div');
+    verifyBox.className = 'solution-verify';
+    verifyBox.textContent = verifyLine;
+    s2.appendChild(verifyBox);
+    body.appendChild(s2);
+
+    // ── Section 3: iteration summary table ──────────────────────
+    if (res.steps.length > 0) {
+      const s3 = document.createElement('div'); s3.className = 'phase';
+      const s3q = document.createElement('p'); s3q.className = 'phase-question';
+      s3q.textContent = 'Зведена таблиця ітерацій:';
+      s3.appendChild(s3q);
+
+      const iterTable = document.createElement('table');
+      iterTable.className = 'iter-summary-table';
+
+      const thead = document.createElement('thead');
+      const hrow  = document.createElement('tr');
+      ['Ітерація', 'Ведучий рядок', 'Ведучий стовпець', 'Вийшла зі складу базису', 'Увійшла до базису'].forEach(h => {
+        const th = document.createElement('th'); th.textContent = h; hrow.appendChild(th);
+      });
+      thead.appendChild(hrow);
+      iterTable.appendChild(thead);
+
+      const tbody = document.createElement('tbody');
+      res.steps.forEach((step, idx) => {
+        const tr = document.createElement('tr');
+        const basis = solver.getBasis(step.snapIdx);
+        const outgoing = solver.varName(basis[step.pivotRow]);
+        const incoming = solver.varName(step.pivotCol);
+
+        const tdNum = document.createElement('td'); tdNum.className = 'iter-num'; tdNum.textContent = idx + 1;
+        const tdRow = document.createElement('td'); tdRow.textContent = step.pivotRow + 1;
+        const tdCol = document.createElement('td'); tdCol.textContent = step.pivotCol + 1;
+        const tdOut = document.createElement('td'); tdOut.className = 'iter-out'; tdOut.textContent = outgoing;
+        const tdIn  = document.createElement('td'); tdIn.className  = 'iter-in';  tdIn.textContent  = incoming;
+
+        [tdNum, tdRow, tdCol, tdOut, tdIn].forEach(td => tr.appendChild(td));
+        tbody.appendChild(tr);
+      });
+      iterTable.appendChild(tbody);
+      s3.appendChild(iterTable);
+      body.appendChild(s3);
+    }
+
+    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
   /* ── Final result banner ────────────────── */
   _showFinalResult() {
     const res    = this.result;
@@ -2485,6 +2683,10 @@ class UIManager {
 
     banner.classList.remove('hidden');
     banner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    if (this.mode === 'student' && res.status === 'optimal') {
+      setTimeout(() => this._renderSolutionExplanation(), 300);
+    }
   }
 }
 

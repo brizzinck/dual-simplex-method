@@ -1302,6 +1302,92 @@ input[type="text"]:focus {
   font-variant-numeric: tabular-nums;
 }
 
+/* demo formula strip */
+.demo-formula {
+  font-family: var(--font-mono);
+  font-size: .8125rem;
+  line-height: 1.65;
+  padding: .5rem .875rem;
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-border);
+  border-left: 3px solid var(--warning);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  color: #78350f;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* solution explanation card */
+.solution-vars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .625rem;
+}
+
+.solution-chip {
+  display: flex;
+  align-items: center;
+  gap: .25rem;
+  background: var(--primary-lt);
+  border: 1.5px solid var(--primary);
+  border-radius: var(--r-md);
+  padding: .5rem 1rem;
+  font-family: var(--font-mono);
+}
+
+.solution-chip.zero {
+  background: var(--surface-alt);
+  border-color: var(--border);
+  opacity: .65;
+}
+
+.sol-var { font-size: .875rem; color: var(--text-muted); font-weight: 600; }
+.sol-eq  { color: var(--text-muted); margin: 0 .15rem; }
+.sol-val { font-size: 1.0625rem; font-weight: 700; color: var(--primary-dk); }
+.solution-chip.zero .sol-val { color: var(--text-muted); }
+
+.solution-verify {
+  font-family: var(--font-mono);
+  font-size: .875rem;
+  line-height: 1.7;
+  padding: .75rem 1rem;
+  background: var(--success-bg);
+  border: 1px solid var(--success-border);
+  border-left: 3px solid var(--success);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  color: var(--success);
+  font-weight: 500;
+  white-space: pre-wrap;
+}
+
+.iter-summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .875rem;
+}
+
+.iter-summary-table th,
+.iter-summary-table td {
+  padding: .4375rem .75rem;
+  text-align: center;
+  border: 1px solid var(--border);
+}
+
+.iter-summary-table thead th {
+  background: var(--surface-alt);
+  font-weight: 600;
+  font-size: .8125rem;
+  color: var(--text-muted);
+}
+
+.iter-summary-table tbody tr:nth-child(odd) td {
+  background: var(--surface-alt);
+}
+
+.iter-summary-table td.iter-in  { color: var(--success); font-weight: 600; }
+.iter-summary-table td.iter-out { color: var(--error);   font-weight: 600; }
+.iter-summary-table td.iter-num { font-weight: 700; color: var(--text-label); }
+
 .hidden { display: none !important; }
 
 .text-success { color: var(--success); }
