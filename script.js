@@ -919,6 +919,368 @@ class InputManager {
 
 
 /* ═══════════════════════════════════════════════
+   StepAnimator — drives per-cell demo animations
+═══════════════════════════════════════════════ */
+class StepAnimator {
+  static HL = ['hl-row','hl-col','hl-pivot','hl-neg','hl-pos','hl-warn','hl-new'];
+
+  constructor(container) {
+    this.c     = container;
+    this.steps = [];
+    this.idx   = -1;
+    this._t    = null;
+  }
+
+  load(steps) { this.steps = steps; this.idx = -1; }
+
+  start() { clearTimeout(this._t); this.idx = 0; this._show(); this._auto(); }
+  next()  { clearTimeout(this._t); if (this.idx < this.steps.length - 1) { this.idx++; this._show(); } }
+  prev()  { clearTimeout(this._t); if (this.idx > 0)                     { this.idx--; this._show(); } }
+
+  _clear() {
+    this.c.querySelectorAll('td').forEach(el =>
+      StepAnimator.HL.forEach(c => el.classList.remove(c))
+    );
+  }
+
+  _show() {
+    const s = this.steps[this.idx]; if (!s) return;
+    this._clear();
+    (s.cells || []).forEach(({ sel, cls }) =>
+      this.c.querySelectorAll(sel).forEach(el => el.classList.add(cls))
+    );
+    (s.vals || []).forEach(({ sel, text }) =>
+      this.c.querySelectorAll(sel).forEach(el => { el.textContent = text; })
+    );
+    const te = this.c.querySelector('.demo-step-text');
+    if (te && s.text != null) te.innerHTML = s.text;
+    const ce = this.c.querySelector('.demo-counter');
+    if (ce) ce.textContent = `${this.idx + 1} / ${this.steps.length}`;
+  }
+
+  _auto() {
+    const s = this.steps[this.idx];
+    if (!s || this.idx >= this.steps.length - 1) return;
+    this._t = setTimeout(() => { this.idx++; this._show(); this._auto(); }, s.delay ?? 1800);
+  }
+}
+
+
+/* ═══════════════════════════════════════════════
+   HelpContent — rules + animated demo per stage
+═══════════════════════════════════════════════ */
+const HelpContent = (() => {
+  function tbl(headers, rows) {
+    const wrap = document.createElement('div'); wrap.className = 'demo-table-wrap';
+    const t = document.createElement('table'); t.className = 'demo-table';
+    const th = document.createElement('thead');
+    const hr = document.createElement('tr');
+    headers.forEach(h => {
+      const el = document.createElement('th'); el.innerHTML = h; hr.appendChild(el);
+    });
+    th.appendChild(hr); t.appendChild(th);
+    const tb = document.createElement('tbody');
+    rows.forEach((row, ri) => {
+      const tr = document.createElement('tr');
+      if (row.cls) tr.className = row.cls;
+      const td0 = document.createElement('td'); td0.className = 'd-basis'; td0.innerHTML = row.basis;
+      tr.appendChild(td0);
+      row.data.forEach((v, ci) => {
+        const td = document.createElement('td');
+        td.textContent = v; td.dataset.r = ri; td.dataset.c = ci;
+        tr.appendChild(td);
+      });
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb); wrap.appendChild(t);
+    return wrap;
+  }
+
+  const canonical = () => ({
+    title: 'Побудова початкової симплекс-таблиці',
+    rules: [
+      'Рядок <b>≤</b>: залишаємо як є, додаємо <code>sᵢ = 1</code> у стовпець sᵢ',
+      'Рядок <b>≥</b>: множимо весь рядок <em>і</em> b на <b>−1</b>, потім <code>sᵢ = 1</code>',
+      'Рядок <b>Δ</b>: <code>min</code> → Δⱼ = cⱼ;&nbsp; <code>max</code> → Δⱼ = −cⱼ; для sᵢ: 0; b = 0',
+      'Початковий базис — змінні <code>s₁, s₂, …, sₘ</code>, по одній у кожному рядку',
+    ],
+    problem: 'min  F = 2x₁ + 3x₂\n  x₁ + 2x₂ ≤ 4   (рядок ≤)\n  x₁ +  x₂ ≥ 3   (рядок ≥)',
+    table: tbl(
+      ['Базис','x₁','x₂','s₁','s₂','b'],
+      [
+        { basis:'s₁', cls:'',        data:['?','?','?','?','?'] },
+        { basis:'s₂', cls:'',        data:['?','?','?','?','?'] },
+        { basis:'Δ',  cls:'d-delta', data:['?','?','?','?','?'] },
+      ]
+    ),
+    steps: [
+      { text:'Завдання: перетворити задачу на стандартний вигляд для двоїстого симплекс-методу.', delay:2200 },
+      {
+        text:'Рядок 1: знак <b>≤</b> → коефіцієнти без змін (1, 2), b = 4. Ставимо <b>s₁ = 1</b> у своєму стовпці.',
+        cells:[{ sel:'td[data-r="0"]', cls:'hl-row' }],
+        vals:[ {sel:'td[data-r="0"][data-c="0"]',text:'1'}, {sel:'td[data-r="0"][data-c="1"]',text:'2'},
+               {sel:'td[data-r="0"][data-c="2"]',text:'1'}, {sel:'td[data-r="0"][data-c="3"]',text:'0'},
+               {sel:'td[data-r="0"][data-c="4"]',text:'4'} ],
+        delay:2600,
+      },
+      {
+        text:'Рядок 2: знак <b>≥</b> → множимо на −1: коефіцієнти (1→−1, 1→−1), b: 3→−3. Ставимо <b>s₂ = 1</b>.',
+        cells:[{ sel:'td[data-r="1"]', cls:'hl-neg' }],
+        vals:[ {sel:'td[data-r="1"][data-c="0"]',text:'−1'}, {sel:'td[data-r="1"][data-c="1"]',text:'−1'},
+               {sel:'td[data-r="1"][data-c="2"]',text:'0'},  {sel:'td[data-r="1"][data-c="3"]',text:'1'},
+               {sel:'td[data-r="1"][data-c="4"]',text:'−3'} ],
+        delay:2600,
+      },
+      {
+        text:'Рядок Δ: <code>min</code> → Δⱼ = cⱼ, тому Δ₁=2, Δ₂=3. Для s₁, s₂: 0. Стовпець b = 0.',
+        cells:[{ sel:'td[data-r="2"]', cls:'hl-warn' }],
+        vals:[ {sel:'td[data-r="2"][data-c="0"]',text:'2'}, {sel:'td[data-r="2"][data-c="1"]',text:'3'},
+               {sel:'td[data-r="2"][data-c="2"]',text:'0'}, {sel:'td[data-r="2"][data-c="3"]',text:'0'},
+               {sel:'td[data-r="2"][data-c="4"]',text:'0'} ],
+        delay:2200,
+      },
+      {
+        text:'✓ Таблиця готова. b₂ = −3 &lt; 0 → план прімально недопустимий → запускаємо двоїстий метод.',
+        cells:[
+          {sel:'td[data-r="0"]', cls:'hl-pos'}, {sel:'td[data-r="1"]', cls:'hl-neg'}, {sel:'td[data-r="2"]', cls:'hl-warn'},
+        ],
+      },
+    ],
+  });
+
+  const optimality = () => ({
+    title: 'Перевірка оптимальності плану',
+    rules: [
+      'Перевіряємо <b>лише стовпець b</b> (права частина обмежень)',
+      'Якщо <b>всі bᵢ ≥ 0</b> → план прімально допустимий → <b>оптимальний</b>',
+      'Якщо <b>хоча б одне bᵢ &lt; 0</b> → план недопустимий → виконуємо ітерацію',
+    ],
+    problem: 'Чи є поточний план оптимальним?',
+    table: tbl(
+      ['Базис','x₁','x₂','s₁','s₂','b'],
+      [
+        { basis:'s₁', cls:'',        data:['1', '2', '1','0', '2'] },
+        { basis:'s₂', cls:'',        data:['−1','−1','0','1','−3'] },
+        { basis:'Δ',  cls:'d-delta', data:['2', '3', '0','0', '0'] },
+      ]
+    ),
+    steps: [
+      { text:'Потрібно перевірити кожен рядок — чи b ≥ 0? Дивимося на стовпець b.', delay:1800 },
+      {
+        text:'b₁ = 2 ≥ 0 ✓ — рядок 1 у нормі.',
+        cells:[{sel:'td[data-r="0"][data-c="4"]', cls:'hl-pos'}],
+        delay:1800,
+      },
+      {
+        text:'b₂ = −3 &lt; 0 ✗ — знайшли від\'ємне! Оптимальність не досягнута.',
+        cells:[
+          {sel:'td[data-r="0"][data-c="4"]', cls:'hl-pos'},
+          {sel:'td[data-r="1"][data-c="4"]', cls:'hl-neg'},
+        ],
+        delay:2000,
+      },
+      {
+        text:'→ Відповідь: план <b>НЕ оптимальний</b> (є b₂ = −3 &lt; 0). Виконуємо ітерацію двоїстого методу.',
+        cells:[{sel:'td[data-r="1"]', cls:'hl-neg'}],
+      },
+    ],
+  });
+
+  const pivotRow = () => ({
+    title: 'Вибір ведучого рядка',
+    rules: [
+      'Знайдіть усі рядки де <b>bᵢ &lt; 0</b>',
+      'Ведучий рядок — той де <b>bᵢ найменше (найбільш від\'ємне)</b>',
+      'Якщо кілька рядків мають однакове мінімальне b — оберіть будь-який',
+    ],
+    problem: 'Оберіть ведучий рядок (найбільш від\'ємне b):',
+    table: tbl(
+      ['Базис','x₁','x₂','s₁','b'],
+      [
+        { basis:'s₁', cls:'',        data:['1', '2','1', '3'] },
+        { basis:'s₂', cls:'',        data:['−2','1','0','−5'] },
+        { basis:'s₃', cls:'',        data:['1','−1','0','−1'] },
+        { basis:'Δ',  cls:'d-delta', data:['3', '4','0', '0'] },
+      ]
+    ),
+    steps: [
+      { text:'Переглядаємо стовпець b: шукаємо від\'ємні значення.', delay:1800 },
+      {
+        text:'b₁ = 3 ≥ 0 ✓ — цей рядок не підходить.',
+        cells:[{sel:'td[data-r="0"][data-c="3"]', cls:'hl-pos'}],
+        delay:1800,
+      },
+      {
+        text:'b₂ = −5 &lt; 0 ✗ — кандидат на ведучий рядок.',
+        cells:[
+          {sel:'td[data-r="0"][data-c="3"]', cls:'hl-pos'},
+          {sel:'td[data-r="1"][data-c="3"]', cls:'hl-neg'},
+        ],
+        delay:1800,
+      },
+      {
+        text:'b₃ = −1 &lt; 0 ✗ — теж від\'ємне, але −1 &gt; −5 (не найменше).',
+        cells:[
+          {sel:'td[data-r="0"][data-c="3"]', cls:'hl-pos'},
+          {sel:'td[data-r="1"][data-c="3"]', cls:'hl-neg'},
+          {sel:'td[data-r="2"][data-c="3"]', cls:'hl-warn'},
+        ],
+        delay:2000,
+      },
+      {
+        text:'→ Ведучий рядок = <b>рядок 2</b> (b₂ = −5 — найменше значення у стовпці b).',
+        cells:[{sel:'td[data-r="1"]', cls:'hl-neg'}],
+      },
+    ],
+  });
+
+  const pivotCol = () => ({
+    title: 'Вибір ведучого стовпця',
+    rules: [
+      'Беремо лише елементи ведучого рядка де <b>aᵣⱼ &lt; 0</b> — інші ігноруємо',
+      'Для кожного такого j рахуємо: <code>|Δⱼ / aᵣⱼ|</code>',
+      'Ведучий стовпець — той j де відношення <b>мінімальне</b>',
+    ],
+    problem: 'Ведучий рядок: рядок 2 (виділено). Оберіть ведучий стовпець:',
+    table: tbl(
+      ['Базис','x₁','x₂','s₁','b'],
+      [
+        { basis:'s₁', cls:'',        data:['1', '2', '1','3'] },
+        { basis:'s₂', cls:'',        data:['−2','1','−1','−5'] },
+        { basis:'Δ',  cls:'d-delta', data:['4', '0', '3', '0'] },
+      ]
+    ),
+    steps: [
+      {
+        text:'Ведучий рядок — рядок 2. Шукаємо від\'ємні елементи у цьому рядку.',
+        cells:[{sel:'td[data-r="1"]', cls:'hl-row'}],
+        delay:2000,
+      },
+      {
+        text:'a₂₁ = −2 &lt; 0 ✓ кандидат. a₂₂ = 1 ≥ 0 — ігноруємо. a₂₃ = −1 &lt; 0 ✓ кандидат.',
+        cells:[
+          {sel:'td[data-r="1"][data-c="0"]', cls:'hl-neg'},
+          {sel:'td[data-r="1"][data-c="2"]', cls:'hl-neg'},
+        ],
+        delay:2600,
+      },
+      {
+        text:'Відношення для x₁: |Δ₁ / a₂₁| = |4 / (−2)| = <b>2</b>.',
+        cells:[
+          {sel:'td[data-r="1"][data-c="0"]', cls:'hl-neg'},
+          {sel:'td[data-r="2"][data-c="0"]', cls:'hl-warn'},
+        ],
+        delay:2400,
+      },
+      {
+        text:'Відношення для s₁: |Δ₃ / a₂₃| = |3 / (−1)| = <b>3</b>. Порівнюємо: 2 &lt; 3.',
+        cells:[
+          {sel:'td[data-r="1"][data-c="2"]', cls:'hl-neg'},
+          {sel:'td[data-r="2"][data-c="2"]', cls:'hl-warn'},
+        ],
+        delay:2400,
+      },
+      {
+        text:'→ Ведучий стовпець = <b>x₁</b> (мінімальне відношення = 2). Ведучий елемент = −2.',
+        cells:[
+          {sel:'td[data-r="0"][data-c="0"]', cls:'hl-col'},
+          {sel:'td[data-r="1"][data-c="0"]', cls:'hl-pivot'},
+          {sel:'td[data-r="2"][data-c="0"]', cls:'hl-col'},
+        ],
+      },
+    ],
+  });
+
+  const gauss = () => ({
+    title: 'Крок Гаусса-Жордана',
+    rules: [
+      '<b>Ведучий рядок</b>: ділимо кожен елемент на ведучий елемент <code>aᵣₛ</code>',
+      '<b>Кожен інший рядок i</b>: новий_рядокᵢ = старий_рядокᵢ − <code>aᵢₛ</code> × новий_ведучий_рядок',
+      'Після перетворення: ведучий елемент = <b>1</b>, решта елементів стовпця = <b>0</b>',
+      'Рядок Δ обробляється <b>так само</b>, як інші рядки',
+    ],
+    problem: 'Ведучий рядок: 2, стовпець: x₁. Ведучий елемент a₂₁ = −2.',
+    table: tbl(
+      ['Базис','x₁','x₂','s₁','s₂','b'],
+      [
+        { basis:'s₁', cls:'',        data:['1', '2','1','0', '4'] },
+        { basis:'s₂', cls:'',        data:['−2','1','0','1','−6'] },
+        { basis:'Δ',  cls:'d-delta', data:['4', '3','0','0', '0'] },
+      ]
+    ),
+    steps: [
+      {
+        text:'Ведучий елемент a₂₁ = −2. Він стоїть на перетині ведучого рядка (рядок 2) і ведучого стовпця (x₁).',
+        cells:[
+          {sel:'td[data-r="1"]',             cls:'hl-row'},
+          {sel:'td[data-r="0"][data-c="0"]', cls:'hl-col'},
+          {sel:'td[data-r="2"][data-c="0"]', cls:'hl-col'},
+          {sel:'td[data-r="1"][data-c="0"]', cls:'hl-pivot'},
+        ],
+        delay:2600,
+      },
+      {
+        text:'Крок 1 — ведучий рядок ÷ (−2): [−2,1,0,1,−6] ÷ (−2) → <b>[1, −½, 0, −½, 3]</b>.',
+        cells:[{sel:'td[data-r="1"]', cls:'hl-new'}],
+        vals:[
+          {sel:'td[data-r="1"][data-c="0"]',text:'1'},   {sel:'td[data-r="1"][data-c="1"]',text:'−1/2'},
+          {sel:'td[data-r="1"][data-c="2"]',text:'0'},   {sel:'td[data-r="1"][data-c="3"]',text:'−1/2'},
+          {sel:'td[data-r="1"][data-c="4"]',text:'3'},
+        ],
+        delay:2800,
+      },
+      {
+        text:'Крок 2 — рядок 1: коефіцієнт a₁₁ = 1. Рядок 1 = рядок 1 − <b>1</b> × новий_ведучий_рядок.',
+        cells:[
+          {sel:'td[data-r="0"]', cls:'hl-calc'},
+          {sel:'td[data-r="1"]', cls:'hl-row'},
+        ],
+        delay:2600,
+      },
+      {
+        text:'[1,2,1,0,4] − 1×[1,−½,0,−½,3] → <b>[0, 5/2, 1, 1/2, 1]</b>.',
+        cells:[{sel:'td[data-r="0"]', cls:'hl-new'}],
+        vals:[
+          {sel:'td[data-r="0"][data-c="0"]',text:'0'},   {sel:'td[data-r="0"][data-c="1"]',text:'5/2'},
+          {sel:'td[data-r="0"][data-c="2"]',text:'1'},   {sel:'td[data-r="0"][data-c="3"]',text:'1/2'},
+          {sel:'td[data-r="0"][data-c="4"]',text:'1'},
+        ],
+        delay:2800,
+      },
+      {
+        text:'Крок 3 — рядок Δ: Δ₁ = 4. Рядок Δ = рядок Δ − <b>4</b> × новий_ведучий_рядок.',
+        cells:[
+          {sel:'td[data-r="2"]', cls:'hl-calc'},
+          {sel:'td[data-r="1"]', cls:'hl-row'},
+        ],
+        delay:2600,
+      },
+      {
+        text:'[4,3,0,0,0] − 4×[1,−½,0,−½,3] → <b>[0, 5, 0, 2, −12]</b>.',
+        cells:[{sel:'td[data-r="2"]', cls:'hl-new'}],
+        vals:[
+          {sel:'td[data-r="2"][data-c="0"]',text:'0'}, {sel:'td[data-r="2"][data-c="1"]',text:'5'},
+          {sel:'td[data-r="2"][data-c="2"]',text:'0'}, {sel:'td[data-r="2"][data-c="3"]',text:'2'},
+          {sel:'td[data-r="2"][data-c="4"]',text:'−12'},
+        ],
+        delay:2200,
+      },
+      {
+        text:'✓ Таблиця перерахована. Стовпець x₁ тепер одиничний. Базисна змінна рядка 2 стала <b>x₁</b>.',
+        cells:[
+          {sel:'td[data-r="0"]', cls:'hl-pos'},
+          {sel:'td[data-r="1"]', cls:'hl-pos'},
+          {sel:'td[data-r="2"]', cls:'hl-pos'},
+        ],
+      },
+    ],
+  });
+
+  return { canonical, optimality, pivotRow, pivotCol, gauss };
+})();
+
+
+/* ═══════════════════════════════════════════════
    UIManager — step-by-step interactive flow
 ═══════════════════════════════════════════════ */
 class UIManager {
@@ -946,9 +1308,8 @@ class UIManager {
 
     if (this.mode === 'guide') {
       this._startGuide();
-    } else {
-      this._renderStep(0);
     }
+    // student mode: _renderCanonicalForm() triggers _renderStep(0) after canonical form is verified
   }
 
   /* ══════════════════════════════════════════
@@ -1079,38 +1440,103 @@ class UIManager {
     p2.appendChild(tbl);
     body.appendChild(p2);
 
+    // ── Shared helper: build the feasibility-summary phase ──────
+    const buildP4 = () => {
+      const el = document.createElement('div'); el.className = 'phase';
+      const dualOk       = solver.isDualFeasible(snap0);
+      const primalInfeas = !solver.isPrimalFeasible(snap0);
+
+      const dualDiv = document.createElement('div');
+      dualDiv.className = `phase-feedback ${dualOk ? 'success' : 'error'}`;
+      dualDiv.innerHTML = dualOk
+        ? `✓ Подвійна допустимість: виконується (всі ${dualCond}) — метод застосовний`
+        : `✕ Подвійна допустимість: <strong>порушена</strong> — не всі ${dualCond}.<br>` +
+          `Двоїстий симплекс-метод вимагає ${dualCond} для всіх небазисних змінних ` +
+          `в початковій таблиці. Змініть задачу або оберіть інший метод.`;
+      el.appendChild(dualDiv);
+
+      const primDiv = document.createElement('div');
+      primDiv.className = `phase-feedback ${primalInfeas ? 'success' : 'info'}`;
+      primDiv.innerHTML = primalInfeas
+        ? '✓ Є від\'ємні bᵢ — план первинно недопустимий (стартова умова двоїстого методу)'
+        : 'ℹ Всі bᵢ ≥ 0 — план вже первинно допустимий (ітерацій не потрібно, розв\'язок знайдено одразу)';
+      el.appendChild(primDiv);
+      return el;
+    };
+
     // ── Phase 3: initial simplex tableau ────────────────────────
+    if (this.mode !== 'student') {
+      const p3 = document.createElement('div'); p3.className = 'phase';
+      const p3q = document.createElement('p'); p3q.className = 'phase-question';
+      p3q.textContent = 'Початкова симплекс-таблиця:';
+      p3.appendChild(p3q);
+      p3.appendChild(this._buildTable(0).wrap);
+      body.appendChild(p3);
+      body.appendChild(buildP4());
+      return;
+    }
+
+    // ── Student mode: student fills in the canonical tableau ─────
     const p3 = document.createElement('div'); p3.className = 'phase';
     const p3q = document.createElement('p'); p3q.className = 'phase-question';
-    p3q.textContent = 'Початкова симплекс-таблиця:';
+    p3q.textContent = 'Заповніть початкову симплекс-таблицю (канонічна форма):';
     p3.appendChild(p3q);
-    p3.appendChild(this._buildTable(0).wrap);
+
+    p3.appendChild(this._buildHelpPanel('canonical'));
+
+    const { wrap: editWrap, inputCells } = this._buildFullInputTable(0);
+    p3.appendChild(editWrap);
+
+    const verifyBar = document.createElement('div');
+    verifyBar.className = 'recalc-controls';
+    const btnVerify = document.createElement('button');
+    btnVerify.className = 'btn btn-primary';
+    btnVerify.textContent = 'Перевірити';
+    verifyBar.appendChild(btnVerify);
+    p3.appendChild(verifyBar);
+
+    const verifyFb = document.createElement('div');
+    verifyFb.className = 'phase-feedback hidden';
+    p3.appendChild(verifyFb);
     body.appendChild(p3);
 
-    // ── Phase 4: feasibility summary ─────────────────────────────
-    const p4 = document.createElement('div'); p4.className = 'phase';
-
-    // snap0 already defined above (for dualCond)
-    const dualOk       = solver.isDualFeasible(snap0);
-    const primalInfeas = !solver.isPrimalFeasible(snap0);
-
-    const dualDiv = document.createElement('div');
-    dualDiv.className = `phase-feedback ${dualOk ? 'success' : 'error'}`;
-    dualDiv.innerHTML = dualOk
-      ? `✓ Подвійна допустимість: виконується (всі ${dualCond}) — метод застосовний`
-      : `✕ Подвійна допустимість: <strong>порушена</strong> — не всі ${dualCond}.<br>` +
-        `Двоїстий симплекс-метод вимагає ${dualCond} для всіх небазисних змінних ` +
-        `в початковій таблиці. Змініть задачу або оберіть інший метод.`;
-    p4.appendChild(dualDiv);
-
-    const primDiv = document.createElement('div');
-    primDiv.className = `phase-feedback ${primalInfeas ? 'success' : 'info'}`;
-    primDiv.innerHTML = primalInfeas
-      ? '✓ Є від\'ємні bᵢ — план первинно недопустимий (стартова умова двоїстого методу)'
-      : 'ℹ Всі bᵢ ≥ 0 — план вже первинно допустимий (ітерацій не потрібно, розв\'язок знайдено одразу)';
-    p4.appendChild(primDiv);
-
+    const p4 = buildP4();
+    p4.classList.add('hidden');
     body.appendChild(p4);
+
+    let verifyMisses = 0;
+
+    btnVerify.addEventListener('click', () => {
+      let allOk = true;
+      inputCells.forEach(({ inp, correctVal }) => {
+        inp.classList.remove('correct', 'wrong');
+        const uv = DualSimplexSolver.parseFraction(inp.value);
+        const ok = !isNaN(uv) && Math.abs(uv - correctVal) <= 1e-6;
+        inp.classList.add(ok ? 'correct' : 'wrong');
+        if (!ok) allOk = false;
+      });
+
+      if (allOk) {
+        verifyFb.className = 'phase-feedback success';
+        verifyFb.textContent = 'Правильно! Канонічну форму побудовано вірно.';
+        btnVerify.disabled = true;
+        p4.classList.remove('hidden');
+        p4.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        if (this.result) {
+          setTimeout(() => this._renderStep(0), 800);
+        }
+      } else {
+        verifyMisses++;
+        let msg = 'Деякі значення невірні (червоний колір).';
+        if (verifyMisses === 1) {
+          msg += ' Підказка: ≥ → рядок і b на −1; ≤ → без змін; sᵢ = 1 у своєму стовпці. Скористайтесь панеллю «Правила та приклад» вище.';
+        } else {
+          msg += ' Перевірте знаки коефіцієнтів, значення b та рядок Δ.';
+        }
+        verifyFb.className = 'phase-feedback error';
+        verifyFb.textContent = msg;
+      }
+    });
   }
 
   /* ══════════════════════════════════════════
@@ -1328,6 +1754,69 @@ class UIManager {
     return { wrap, table, tbody, thead };
   }
 
+  /* ── Table where every cell is a blank input ──
+     Used for the canonical-form interactive step.
+     Returns { wrap, inputCells } where inputCells = [{inp, correctVal}]
+  ─────────────────────────────────────────────────── */
+  _buildFullInputTable(snapIdx) {
+    const solver = this.solver;
+    const tab    = solver.getTableau(snapIdx);
+    const basis  = solver.getBasis(snapIdx);
+    const hdrs   = this._colHeaders();
+    const bCol   = solver.bCol;
+    const inputCells = [];
+
+    const wrap  = document.createElement('div');
+    wrap.className = 'simplex-table-wrap';
+    const table = document.createElement('table');
+    table.className = 'simplex-table';
+
+    const thead = document.createElement('thead');
+    const hrow  = document.createElement('tr');
+    const thB   = document.createElement('th');
+    thB.className = 'col-basis'; thB.textContent = 'Базис';
+    hrow.appendChild(thB);
+    hdrs.forEach((h, j) => {
+      const th = document.createElement('th');
+      th.textContent = h;
+      if (j === bCol) th.className = 'col-b';
+      hrow.appendChild(th);
+    });
+    thead.appendChild(hrow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    tab.forEach((row, i) => {
+      const tr = document.createElement('tr');
+      const tdLabel = document.createElement('td');
+      tdLabel.className = 'col-basis';
+      if (i === solver.m) {
+        tr.classList.add('row-delta');
+        tdLabel.textContent = 'Δ';
+      } else {
+        tdLabel.textContent = solver.varName(basis[i]);
+      }
+      tr.appendChild(tdLabel);
+
+      row.forEach((val, j) => {
+        const td = document.createElement('td');
+        if (j === bCol) td.className = 'col-b';
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.className = 'cell-input';
+        inp.placeholder = '?';
+        td.appendChild(inp);
+        inputCells.push({ inp, correctVal: val });
+        tr.appendChild(td);
+      });
+
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    return { wrap, inputCells };
+  }
+
   /* ── Table where b-column and Δ-row are blank inputs ──
      A-matrix cells are read-only text.
      Returns { wrap, inputCells } where inputCells = [{inp, correctVal}]
@@ -1401,6 +1890,82 @@ class UIManager {
     table.appendChild(tbody);
     wrap.appendChild(table);
     return { wrap, inputCells };
+  }
+
+  /* ── Collapsible help panel (rules + animated demo) ── */
+  _buildHelpPanel(stage) {
+    const cfg = HelpContent[stage]();
+
+    const panel = document.createElement('div');
+    panel.className = 'help-panel';
+
+    const toggle = document.createElement('button');
+    toggle.className = 'btn-help-toggle';
+    toggle.innerHTML =
+      `<span>📖 ${cfg.title} — правила та приклад</span>` +
+      `<span class="help-chevron">▼</span>`;
+
+    const content = document.createElement('div');
+    content.className = 'help-content hidden';
+
+    toggle.addEventListener('click', () => {
+      const nowHidden = content.classList.toggle('hidden');
+      toggle.classList.toggle('open', !nowHidden);
+    });
+
+    // Rules
+    const rulesWrap = document.createElement('div');
+    rulesWrap.className = 'help-rules';
+    const rTitle = document.createElement('div');
+    rTitle.className = 'help-section-title'; rTitle.textContent = 'Правила';
+    rulesWrap.appendChild(rTitle);
+    cfg.rules.forEach(r => {
+      const el = document.createElement('div'); el.className = 'help-rule'; el.innerHTML = r;
+      rulesWrap.appendChild(el);
+    });
+    content.appendChild(rulesWrap);
+
+    // Demo
+    const demo = document.createElement('div');
+    demo.className = 'help-demo';
+
+    const dTitle = document.createElement('div');
+    dTitle.className = 'demo-title'; dTitle.textContent = 'Покроковий приклад';
+    demo.appendChild(dTitle);
+
+    if (cfg.problem) {
+      const prob = document.createElement('pre'); prob.className = 'demo-problem'; prob.textContent = cfg.problem;
+      demo.appendChild(prob);
+    }
+
+    demo.appendChild(cfg.table);
+
+    const stepText = document.createElement('div');
+    stepText.className = 'demo-step-text'; stepText.textContent = 'Натисніть ▶ для перегляду прикладу';
+    demo.appendChild(stepText);
+
+    const controls = document.createElement('div'); controls.className = 'demo-controls';
+    const btnPlay = document.createElement('button'); btnPlay.className = 'btn-demo';           btnPlay.textContent = '▶ Програти';
+    const btnPrev = document.createElement('button'); btnPrev.className = 'btn-demo secondary'; btnPrev.textContent = '‹ Назад';
+    const btnNext = document.createElement('button'); btnNext.className = 'btn-demo secondary'; btnNext.textContent = 'Далі ›';
+    const counter = document.createElement('span');   counter.className = 'demo-counter';
+    controls.appendChild(btnPlay);
+    controls.appendChild(btnPrev);
+    controls.appendChild(btnNext);
+    controls.appendChild(counter);
+    demo.appendChild(controls);
+    content.appendChild(demo);
+
+    panel.appendChild(toggle);
+    panel.appendChild(content);
+
+    const anim = new StepAnimator(demo);
+    anim.load(cfg.steps);
+    btnPlay.addEventListener('click', () => anim.start());
+    btnPrev.addEventListener('click', () => anim.prev());
+    btnNext.addEventListener('click', () => anim.next());
+
+    return panel;
   }
 
   /* ── Create a step card shell ────────────── */
@@ -1544,6 +2109,7 @@ class UIManager {
     optQ.className = 'phase-question';
     optQ.textContent = 'Чи є поточний план оптимальним? (перевірте, чи всі bᵢ ≥ 0)';
     optPhase.appendChild(optQ);
+    optPhase.appendChild(this._buildHelpPanel('optimality'));
 
     const btnGroup = document.createElement('div');
     btnGroup.className = 'btn-group';
@@ -1629,6 +2195,7 @@ class UIManager {
     q.className = 'phase-question';
     q.textContent = 'Оберіть ведучий рядок (натисніть на рядок із найбільш від\'ємним bᵢ):';
     phase.appendChild(q);
+    phase.appendChild(this._buildHelpPanel('pivotRow'));
 
     const { wrap, tbody } = this._buildTable(snapIdx, -1, -1, { selRows: true });
     phase.appendChild(wrap);
@@ -1693,6 +2260,7 @@ class UIManager {
     q.className = 'phase-question';
     q.textContent = 'Оберіть ведучий стовпець (натисніть заголовок стовпця; мін. |Δⱼ / aᵣⱼ| серед aᵣⱼ < 0):';
     phase.appendChild(q);
+    phase.appendChild(this._buildHelpPanel('pivotCol'));
 
     const { wrap, thead } = this._buildTable(snapIdx, pivotRow, -1, { selCols: true });
     phase.appendChild(wrap);
@@ -1752,6 +2320,7 @@ class UIManager {
     q.className = 'phase-question';
     q.textContent = 'Заповніть нову симплекс-таблицю після виконання кроку Гаусса-Жордана:';
     phase.appendChild(q);
+    phase.appendChild(this._buildHelpPanel('gauss'));
 
     // Build editable table
     const wrap  = document.createElement('div');
@@ -1823,12 +2392,7 @@ class UIManager {
     btnCheck.className = 'btn btn-primary';
     btnCheck.textContent = 'Перевірити';
 
-    const btnHint = document.createElement('button');
-    btnHint.className = 'btn btn-hint';
-    btnHint.textContent = 'Підказка';
-
     controls.appendChild(btnCheck);
-    controls.appendChild(btnHint);
     phase.appendChild(controls);
 
     const recalcFb = document.createElement('div');
@@ -1839,9 +2403,7 @@ class UIManager {
     card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
     let checkMisses = 0;
-    let hintStage   = 0; // 0 = not used, 1 = formula shown, 2 = answers revealed
 
-    // ── Check button ──
     btnCheck.addEventListener('click', () => {
       const userGrid = inputs.map(rowArr => rowArr.map(inp => inp.value));
       const grid     = solver.validateTableau(nextSnap, userGrid);
@@ -1850,11 +2412,11 @@ class UIManager {
 
       inputs.forEach((rowArr, i) => {
         rowArr.forEach((inp, j) => {
-          if (hintStage < 2) inp.classList.remove('correct', 'wrong');
+          inp.classList.remove('correct', 'wrong');
           if (grid[i][j]) {
-            if (hintStage < 2) inp.classList.add('correct');
+            inp.classList.add('correct');
           } else {
-            if (hintStage < 2) inp.classList.add('wrong');
+            inp.classList.add('wrong');
             allCorrect = false;
             wrongCount++;
           }
@@ -1865,7 +2427,6 @@ class UIManager {
         recalcFb.className = 'phase-feedback success';
         recalcFb.textContent = 'Чудово! Таблицю заповнено правильно. Переходимо до наступного кроку.';
         btnCheck.disabled = true;
-        btnHint.disabled  = true;
         setTimeout(() => {
           this.stepIdx = stepIdx + 1;
           this._renderStep(this.stepIdx);
@@ -1874,43 +2435,12 @@ class UIManager {
         checkMisses++;
         let msg = `${wrongCount} ${wrongCount === 1 ? 'значення невірне' : 'значень невірних'} (позначені червоним).`;
         if (checkMisses === 1) {
-          msg += ' Пам\'ятайте: ведучий рядок ділиться на ведучий елемент. Для інших рядків: новий_рядок = старий_рядок − коеф × ведучий_рядок.';
-        } else if (checkMisses === 2) {
-          msg += ' Перевірте знаки. Для рядка i: коефіцієнт = a[i][ведучий_стовп] до перетворення.';
+          msg += ' Ведучий рядок ÷ ведучий елемент; інші: новий = старий − коеф × ведучий. Скористайтесь панеллю «Правила та приклад» вище.';
         } else {
-          msg += ' Скористайтеся підказкою для отримання формул або відповідей.';
+          msg += ' Перевірте знаки. Коефіцієнт для рядка i = a[i][ведучий стовп] зі СТАРОЇ таблиці.';
         }
         recalcFb.className = 'phase-feedback error';
         recalcFb.textContent = msg;
-      }
-    });
-
-    // ── Hint button (two-stage) ──
-    btnHint.addEventListener('click', () => {
-      if (hintStage === 0) {
-        // Stage 1: show formula only
-        hintStage = 1;
-        btnHint.textContent = 'Показати відповідь';
-        const pivEl = DualSimplexSolver.fmt(solver.getTableau(snapIdx)[pivotRow][pivotCol]);
-        recalcFb.className = 'phase-feedback info';
-        recalcFb.textContent =
-          `Формула: ведучий рядок (рядок ${pivotRow + 1}) ÷ ${pivEl}. ` +
-          `Для кожного іншого рядка i: нове значення = старе − a[i][${pivotCol + 1}] × новий_ведучий_рядок. ` +
-          `Знак визначається знаком a[i][${pivotCol + 1}] у СТАРІЙ таблиці.`;
-      } else {
-        // Stage 2: reveal all answers
-        hintStage = 2;
-        btnHint.disabled = true;
-        inputs.forEach((rowArr, i) => {
-          rowArr.forEach((inp, j) => {
-            inp.classList.remove('correct', 'wrong');
-            inp.classList.add('revealed');
-            inp.value = DualSimplexSolver.fmt(correct[i][j]);
-          });
-        });
-        recalcFb.className = 'phase-feedback info';
-        recalcFb.textContent = 'Відповіді показано. Натисніть «Перевірити» для переходу до наступного кроку.';
-        btnCheck.disabled = false;
       }
     });
   }
