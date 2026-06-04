@@ -626,17 +626,31 @@ class InputManager {
 
   _injectModeToggle() {
     if (document.getElementById('modeToggle')) return;
-    const actionBar = document.querySelector('.action-bar');
     const wrap = document.createElement('div');
     wrap.id = 'modeToggle';
-    wrap.className = 'mode-toggle';
     wrap.innerHTML =
-      '<span class="mode-label">Режим роботи:</span>' +
-      '<label class="mode-option"><input type="radio" name="appMode" value="student" checked>' +
-      '<span class="mode-pill">Тренажер</span></label>' +
-      '<label class="mode-option"><input type="radio" name="appMode" value="guide">' +
-      '<span class="mode-pill">Пояснення</span></label>';
-    actionBar.parentNode.insertBefore(wrap, actionBar);
+      '<label><input type="radio" name="appMode" value="student" checked></label>' +
+      '<label><input type="radio" name="appMode" value="guide"></label>';
+    document.querySelector('.header-inner').appendChild(wrap);
+
+    wrap.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const isGuide = !!wrap.querySelector('input[value="guide"]').checked;
+      wrap.querySelector(`input[value="${isGuide ? 'student' : 'guide'}"]`).checked = true;
+      this._showToast(isGuide ? 'Режим тренування' : 'Режим пояснення активовано');
+    });
+  }
+
+  _showToast(msg) {
+    const t = document.createElement('div');
+    t.className = 'mode-toast';
+    t.textContent = msg;
+    document.body.appendChild(t);
+    requestAnimationFrame(() => t.classList.add('mode-toast-show'));
+    setTimeout(() => {
+      t.classList.remove('mode-toast-show');
+      setTimeout(() => t.remove(), 300);
+    }, 2000);
   }
 
   _getMode() {

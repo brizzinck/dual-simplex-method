@@ -571,64 +571,39 @@ input[type="text"]:focus {
 
 
 /* ═══════════════════════════════════════════════
-   Mode toggle
+   Mode toggle — invisible, lives in header top-right
 ═══════════════════════════════════════════════ */
-.mode-toggle {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: .5rem;
-  margin-bottom: 1rem;
-}
-
-.mode-label {
-  font-size: .875rem;
-  font-weight: 500;
-  color: var(--text-label);
-  margin-right: .25rem;
-}
-
-.mode-option {
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-}
-
-.mode-option input[type="radio"] {
-  position: absolute;
+#modeToggle {
+  margin-left: auto;
   opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.mode-pill {
-  display: inline-block;
-  padding: .375rem .875rem;
-  border-radius: 999px;
-  border: 1.5px solid var(--border);
-  background: var(--surface);
-  font-size: .875rem;
-  font-weight: 500;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: background var(--t), border-color var(--t), color var(--t);
+  cursor: default;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
   user-select: none;
 }
 
-.mode-option input[type="radio"]:checked + .mode-pill {
-  background: var(--primary);
-  border-color: var(--primary);
+/* mode toast notification */
+.mode-toast {
+  position: fixed;
+  top: 1.125rem;
+  right: 1.25rem;
+  background: rgba(26, 29, 46, .88);
   color: #fff;
-  box-shadow: 0 2px 8px rgba(79,110,247,.30);
+  padding: .4375rem 1rem;
+  border-radius: var(--r-sm);
+  font-size: .8125rem;
+  font-weight: 500;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 220ms ease, transform 220ms ease;
+  z-index: 9999;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
 }
-
-.mode-option:hover .mode-pill {
-  border-color: var(--primary);
-  color: var(--primary);
-}
-
-.mode-option input[type="radio"]:checked:hover + .mode-pill {
-  color: #fff;
+.mode-toast.mode-toast-show {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 
