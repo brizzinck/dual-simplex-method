@@ -788,15 +788,23 @@ class InputManager {
     document.getElementById('btnExample').addEventListener('click', () => this._loadExample());
     document.getElementById('btnClear'  ).addEventListener('click', () => this._clearForm());
 
-    // Inject a second example button if not already present
+    // Inject example 2 and 3 buttons if not already present
     if (!document.getElementById('btnExample2')) {
+      const btnEx = document.getElementById('btnExample');
+
       const btn2 = document.createElement('button');
       btn2.id        = 'btnExample2';
       btn2.className = 'btn btn-secondary';
       btn2.textContent = 'Приклад 2 (max)';
-      const btnEx = document.getElementById('btnExample');
       btnEx.parentNode.insertBefore(btn2, btnEx.nextSibling);
       btn2.addEventListener('click', () => this._loadExample2());
+
+      const btn3 = document.createElement('button');
+      btn3.id        = 'btnExample3';
+      btn3.className = 'btn btn-secondary';
+      btn3.textContent = 'Приклад 3 (min→max)';
+      btn2.parentNode.insertBefore(btn3, btn2.nextSibling);
+      btn3.addEventListener('click', () => this._loadExample3());
     }
   }
 
@@ -848,6 +856,32 @@ class InputManager {
     const aCoeffs   = [[2,1],[1,2],[3,4]];
     const bVals     = [16, 10, 36];
     const signs     = ['<=', '>=', '<='];
+
+    document.querySelectorAll('.obj-coeff').forEach((el, j) => { el.value = objCoeffs[j]; });
+    document.querySelectorAll('.con-coeff').forEach(el => {
+      el.value = aCoeffs[el.dataset.i][el.dataset.j];
+    });
+    document.querySelectorAll('.rhs-coeff').forEach(el => { el.value = bVals[el.dataset.i]; });
+    document.querySelectorAll('.sign-select').forEach(el => { el.value = signs[el.dataset.i]; });
+    this._hideError();
+  }
+
+  _loadExample3() {
+    // min F = 3x₁ + 2x₂ + x₃
+    // s.t.  2x₁ +  x₂ + x₃ ≥ 6
+    //        x₁ + 3x₂      ≥ 9
+    //        x₁ +  x₂ + 2x₃ ≥ 8
+    // All >= → all b become negative (primal infeasible) → dual simplex applicable.
+    // min → max(−F) conversion is shown in canonical form.
+    document.getElementById('varsCount').textContent = '3'; this.numVars = 3;
+    document.getElementById('consCount').textContent = '3'; this.numCons = 3;
+    document.getElementById('direction').value = 'min';
+    this._renderForm();
+
+    const objCoeffs = [3, 2, 1];
+    const aCoeffs   = [[2,1,1],[1,3,0],[1,1,2]];
+    const bVals     = [6, 9, 8];
+    const signs     = ['>=', '>=', '>='];
 
     document.querySelectorAll('.obj-coeff').forEach((el, j) => { el.value = objCoeffs[j]; });
     document.querySelectorAll('.con-coeff').forEach(el => {
@@ -1460,6 +1494,16 @@ class UIManager {
       return `${fmtExpr(row, varNames)} ${sc} ${DualSimplexSolver.fmt(solver._bOrig[i])}`;
     }).join('<br>');
     p1.appendChild(conDiv);
+
+    if (dir === 'min') {
+      const convertDiv = document.createElement('div'); convertDiv.className = 'step-note';
+      const negC = [...solver._cOrig].map(v => -v);
+      convertDiv.innerHTML =
+        `<strong>Перетворення напрямку:</strong> min F → max(−F)<br>` +
+        `<strong>F' = ${fmtExpr(negC, varNames)} → max</strong>`;
+      p1.appendChild(convertDiv);
+    }
+
     body.appendChild(p1);
 
     // ── Phase 2: transformation table ───────────────────────────
@@ -1529,7 +1573,7 @@ class UIManager {
     // For min: stored Δⱼ = +cⱼ.  Condition for dual simplex: ${dualCond}.
     tdOA.innerHTML = dir === 'max'
       ? `Δ<sub>j</sub> = −c<sub>j</sub> &nbsp;(${dualCond})`
-      : `Δ<sub>j</sub> = c<sub>j</sub> &nbsp;(${dualCond})`;
+      : `min→max(−F): Δ<sub>j</sub> = −c′<sub>j</sub> = c<sub>j</sub> &nbsp;(${dualCond})`;
     const tdOC  = document.createElement('td');
     const dCoeffs = [...deltaRow.slice(0, n + mSlack)];
     tdOC.innerHTML = `${fmtExpr(dCoeffs, allNames)} &nbsp;[F = ${DualSimplexSolver.fmt(deltaRow[solver.bCol])}]`;
