@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Двоїстий симплекс-метод — Інтерактивний тренажер</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="page-wrapper">
+
+    <!-- ── Header ── -->
+    <header class="site-header">
+      <div class="header-inner">
+        <div class="header-badge">ДСМ</div>
+        <div>
+          <h1 class="site-title">Двоїстий симплекс-метод</h1>
+          <p class="site-subtitle">Інтерактивний тренажер для розв'язання задач лінійного програмування</p>
+        </div>
+      </div>
+    </header>
+
+    <main class="main-content">
+
+      <!-- ══════════════════════════════════════════
+           SECTION 1: Problem Input
+      ══════════════════════════════════════════ -->
+      <section class="card" id="inputCard">
+        <h2 class="card-title">
+          <span class="card-title-icon" aria-hidden="true">⚙</span>
+          Параметри задачі
+        </h2>
+
+        <!-- Dimension controls -->
+        <div class="dim-controls">
+          <div class="dim-group">
+            <label class="dim-label" for="varsCount">Змінних:</label>
+            <div class="stepper" role="group" aria-label="Кількість змінних">
+              <button class="stepper-btn" id="varsDown" aria-label="Зменшити кількість змінних">−</button>
+              <span class="stepper-val" id="varsCount" aria-live="polite">3</span>
+              <button class="stepper-btn" id="varsUp" aria-label="Збільшити кількість змінних">+</button>
+            </div>
+          </div>
+          <div class="dim-group">
+            <label class="dim-label" for="consCount">Обмежень:</label>
+            <div class="stepper" role="group" aria-label="Кількість обмежень">
+              <button class="stepper-btn" id="consDown" aria-label="Зменшити кількість обмежень">−</button>
+              <span class="stepper-val" id="consCount" aria-live="polite">3</span>
+              <button class="stepper-btn" id="consUp" aria-label="Збільшити кількість обмежень">+</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Objective function -->
+        <div class="form-section">
+          <div class="form-section-header">
+            <h3 class="form-section-title">Цільова функція</h3>
+            <select class="direction-select" id="direction" aria-label="Напрям оптимізації">
+              <option value="min">Мінімізувати</option>
+              <option value="max">Максимізувати</option>
+            </select>
+          </div>
+          <div class="objective-row">
+            <span class="func-label">F(x) =</span>
+            <div class="coeff-list" id="objectiveCoeffs" aria-label="Коефіцієнти цільової функції">
+              <!-- Populated by JS: one input per variable, e.g. c₁x₁ + c₂x₂ + … -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Constraints matrix -->
+        <div class="form-section">
+          <h3 class="form-section-title">Система обмежень</h3>
+          <div class="constraints-wrap">
+            <table class="constraints-table" id="constraintsTable" aria-label="Матриця обмежень">
+              <thead>
+                <tr id="constraintsHead">
+                  <!-- Populated by JS: x₁ x₂ … xₙ | sign | b -->
+                </tr>
+              </thead>
+              <tbody id="constraintsBody">
+                <!-- Populated by JS: one row per constraint -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Error banner -->
+        <div class="error-banner hidden" id="errorBanner" role="alert" aria-live="assertive">
+          <span class="error-icon" aria-hidden="true">!</span>
+          <span id="errorText"></span>
+        </div>
+
+        <!-- Action buttons -->
+        <div class="action-bar">
+          <button class="btn btn-primary" id="btnSolve">
+            <span class="btn-icon" aria-hidden="true">▶</span>
+            Розв'язати
+          </button>
+          <button class="btn btn-secondary" id="btnExample">
+            Приклад
+          </button>
+          <button class="btn btn-ghost" id="btnClear">
+            Очистити
+          </button>
+        </div>
+      </section>
+
+      <!-- ══════════════════════════════════════════
+           SECTION 2: Step-by-step solution
+           Each iteration is injected here by JS as
+           a .step-card element.
+      ══════════════════════════════════════════ -->
+      <section class="solution-wrapper hidden" id="solutionWrapper" aria-live="polite" aria-label="Покрокове розв'язання">
+
+        <!-- Step cards are appended here dynamically.
+             Each card follows this structure:
+
+          <div class="step-card" id="step-N">
+            <div class="step-header">
+              <span class="step-badge">Крок N</span>
+              <span class="step-title">...</span>
+            </div>
+
+            === Phase: optimality check ===
+            <div class="phase optimality-check">
+              <p class="phase-question">...</p>
+              <div class="btn-group">
+                <button class="btn btn-choice" data-answer="yes">Так, план оптимальний</button>
+                <button class="btn btn-choice" data-answer="no">Ні, потрібна ітерація</button>
+              </div>
+              <div class="phase-feedback hidden"></div>
+            </div>
+
+            === Phase: simplex table (read-only current) ===
+            <div class="phase simplex-display">
+              <div class="table-wrap">
+                <table class="simplex-table">...</table>
+              </div>
+            </div>
+
+            === Phase: pivot row selection ===
+            <div class="phase pivot-row-select">
+              <p class="phase-question">Оберіть ведучий рядок (найбільш від'ємне bᵢ):</p>
+              <p class="phase-feedback hidden"></p>
+            </div>
+
+            === Phase: pivot column selection ===
+            <div class="phase pivot-col-select">
+              <p class="phase-question">Оберіть ведучий стовпець (мін. |Δⱼ / aᵣⱼ|):</p>
+              <p class="phase-feedback hidden"></p>
+            </div>
+
+            === Phase: manual recalculation table ===
+            <div class="phase recalc-table">
+              <p class="phase-question">Заповніть нову симплекс-таблицю:</p>
+              <div class="table-wrap">
+                <table class="simplex-table editable">
+                  ... cells with <input type="text"> ...
+                </table>
+              </div>
+              <div class="recalc-controls">
+                <button class="btn btn-primary" id="btnCheck-N">Перевірити</button>
+                <button class="btn btn-hint"   id="btnHint-N">Підказка / Показати відповідь</button>
+              </div>
+              <div class="recalc-feedback hidden"></div>
+            </div>
+          </div>
+        -->
+        <div id="solutionOutput"></div>
+
+      </section>
+
+      <!-- ══════════════════════════════════════════
+           SECTION 3: Final result banner
+           Injected by JS once the algorithm terminates.
+      ══════════════════════════════════════════ -->
+      <section class="result-banner hidden" id="resultBanner" aria-live="assertive">
+        <div class="result-inner">
+          <div class="result-icon" id="resultIcon" aria-hidden="true"></div>
+          <div>
+            <h2 class="result-title" id="resultTitle"></h2>
+            <p  class="result-body"  id="resultBody"></p>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <footer class="site-footer">
+      <p>Двоїстий симплекс-метод &mdash; навчальний тренажер для лабораторних робіт з дослідження операцій</p>
+    </footer>
+
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
